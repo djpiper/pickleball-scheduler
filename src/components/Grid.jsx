@@ -70,16 +70,27 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
 
   const cols = `52px repeat(${poll.dates.length}, minmax(60px, 1fr))`;
 
+  // The hour column stays put while the days scroll under it. Each row is its
+  // own grid, so stickiness lives on the individual left-hand cells; they need
+  // an opaque background or the day cells slide through them.
+  const frozen = {
+    position: 'sticky',
+    left: 0,
+    zIndex: 2,
+    background: C.panel,
+    borderRight: `1px solid ${C.hair}`,
+  };
+
   return (
     <div className="rounded overflow-hidden" style={{ border: `1px solid ${C.hair}`, background: C.panel }}>
       <div className="overflow-x-auto">
         <div ref={gridRef} style={{ minWidth: poll.dates.length * 62 + 52 }}>
           <div className="grid" style={{ gridTemplateColumns: cols, borderBottom: `2px solid ${C.line}` }}>
-            <div />
-            {poll.dates.map((d) => {
+            <div style={frozen} />
+            {poll.dates.map((d, di) => {
               const dt = dparse(d);
               return (
-                <div key={d} className="py-2 text-center" style={{ borderLeft: `1px solid ${C.hair}` }}>
+                <div key={d} className="py-2 text-center" style={{ borderLeft: di ? `1px solid ${C.hair}` : 'none' }}>
                   <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '0.16em', color: C.dim }}>
                     {DOW[dt.getDay()].toUpperCase()}
                   </div>
@@ -97,17 +108,17 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
                 <div
                   className="flex items-start justify-end pr-2"
                   style={{
+                    ...frozen,
                     height: 34,
                     fontFamily: MONO,
                     fontSize: 10,
                     color: C.dim,
-                    transform: 'translateY(-6px)',
                   }}
                 >
-                  {onHour ? label(m) : ''}
+                  <span style={{ transform: 'translateY(-6px)' }}>{onHour ? label(m) : ''}</span>
                 </div>
 
-                {poll.dates.map((d) => {
+                {poll.dates.map((d, di) => {
                   const key = ck(d, m);
                   const who = counts[key] || [];
                   const isMine = mine.has(key);
@@ -141,7 +152,7 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
                       style={{
                         height: 34,
                         background: bg,
-                        borderLeft: `1px solid ${C.hair}`,
+                        borderLeft: di ? `1px solid ${C.hair}` : 'none',
                         borderTop: onHour ? `1px solid ${C.hair}` : '1px dotted rgba(220,233,231,0.10)',
                         outline: focusCell === key ? `2px solid ${C.coral}` : 'none',
                         outlineOffset: '-2px',
