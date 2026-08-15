@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+html, body, #root { min-height: 100%; }
+body { margin: 0; background: #0A2532; -webkit-tap-highlight-color: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,7 +1,240 @@
-# pickleball-scheduler
+# Pickleball Scheduler
 
-An app for scheduling pickleball games.
+A When2Meet-style availability grid for a small group. One person creates a poll,
+shares the link, everyone paints the half-hour blocks they could play, and the app
+ranks the windows where the most people overlap.
+
+Built for ~4–8 coworkers picking a court time. Not a general-purpose meeting tool.
+
+---
 
 ## Status
 
-Just getting started.
+Working end to end and deployed live at
+**https://pickleball-scheduler-13v.pages.dev**
+
+Verified locally against a real (simulated) D1 database: poll create/read/edit,
+participant upsert/delete, input validation, slot re-clamping when the grid
+shrinks, and static asset serving.
+
+Verified against the deployed environment: static assets serve over HTTPS, and a
+poll round-tripped through the real D1 database — `POST /api/poll` created it and
+`GET /api/poll/:id` returned it with dates, hours, and participants intact.
+
+Nothing is stubbed or mocked. There are no tests yet.
+
+---
+
+## Stack
+
+| Piece | Choice | Why |
+| --- | --- | --- |
+| UI | React 19 + Vite | Plain SPA, no framework beyond React |
+| Styling | Tailwind v4 (`@tailwindcss/vite`) + inline style tokens | Tailwind for layout, `src/theme.js` for all colour |
+| API | Cloudflare Pages Functions | Same repo, same deploy, no separate service |
+| Data | Cloudflare D1 (SQLite) | Free tier is 5 GB / 5M row reads / 100k row writes per day, and it does **not** pause when idle |
+| Hosting | Cloudflare Pages | Free static hosting + a `*.pages.dev` URL |
+
+The idle-pause point drove the database choice. A scheduling poll sits untouched
+for a week and then has to work the instant someone opens the link — hosts that
+suspend free-tier databases after N days of inactivity (Supabase does this at 7
+days) would need a keep-alive cron. D1 scales to zero without pausing.
+
+Deliberately **not** used: react-router (two routes, hand-rolled), a state
+library, an ORM, any auth provider. Keep it that way unless something demands
+otherwise.
+
+---
+
+## Quick start
+
+```bash
+npm install
+npm run db:init:local        # apply schema.sql to the local simulated D1
+npm run dev:api              # terminal 1 — Pages Functions + D1 on :8788
+npm run dev                  # terminal 2 — Vite UI on :5173, proxies /api to :8788
+```
+
+Open <http://localhost:5173>. Vite's dev server proxies `/api/*` to wrangler
+(configured in `vite.config.js`), so hot reload works while the real API runs.
+
+To test the built app exactly as it deploys (no Vite, no proxy):
+
+```bash
+npm run preview              # builds, then serves dist/ + functions on :8788
+```
+
+Local D1 data lives in `.wrangler/state/` — gitignored, safe to delete to reset.
+
+### Scripts
+
+| Script | Does |
+| --- | --- |
+| `dev` | Vite UI only, proxying `/api` to :8788 |
+| `dev:api` | `wrangler pages dev` — Functions + local D1 |
+| `build` | Vite production build into `dist/` |
+| `preview` | build + serve the whole thing through wrangler |
+| `deploy` | build + `wrangler pages deploy` |
+| `db:init:local` / `db:init:remote` | Apply `schema.sql` |
+
+---
+
+## Deploy
+
+One-time setup:
+
+```bash
+npx wrangler login
+npx wrangler d1 create pickleball          # copy the printed database_id
+# paste it into wrangler.toml -> [[d1_databases]] database_id
+npm run db:init:remote                     # create tables in the real DB
+npm run deploy                             # first deploy creates the Pages project
+```
+
+You get `https://pickleball-scheduler-13v.pages.dev`. That URL is the thing to
+paste into Slack. Subsequent deploys are just `npm run deploy`.
+
+Cloudflare picks that hostname when the project is created and may append a short
+suffix if the plain name is already taken globally — the project itself is still
+named `pickleball-scheduler`. Each deploy also prints an immutable
+`https://<hash>.pickleball-scheduler-13v.pages.dev` preview URL; share the
+un-prefixed one above, since the hashed URL changes every deploy.
+
+If you later wire the repo to GitHub via the Cloudflare dashboard, set the build
+command to `npm run build` and the output directory to `dist`; the D1 binding
+carries over from `wrangler.toml`.
+
+---
+
+## Repo map
+
+```
+index.html                Vite entry, og: tags for Slack unfurls
+vite.config.js            React + Tailwind plugins, /api proxy to :8788
+wrangler.toml             Pages config + D1 binding (database_id is a placeholder)
+schema.sql                Two tables, one index. Idempotent.
+
+src/
+  main.jsx                React root
+  index.css               Tailwind import, reduced-motion block
+  theme.js                ALL colour + font tokens live here
+  lib/
+    time.js               Date/slot key helpers — read this before touching the grid
+    api.js                fetch wrapper; throws Errors with renderable messages
+    identity.js           per-poll localStorage identity
+  components/
+    Setup.jsx             create/edit form (day chips + hour selects)
+    Board.jsx             state owner: save loop, roster, best-window ranking
+    Grid.jsx              the grid itself + mouse/touch painting
+    ui.jsx                small shared primitives
+
+functions/api/poll/
+  index.js                      POST   /api/poll
+  [id]/index.js                 GET    /api/poll/:id
+                                PUT    /api/poll/:id
+  [id]/participant/[pid].js     PUT    /api/poll/:id/participant/:pid
+                                DELETE /api/poll/:id/participant/:pid
+
+shared/                   imported by Functions; lives outside functions/ so
+  http.js                 Cloudflare never mistakes a helper for a route
+  validate.js             all input validation + id generation
+  db.js                   D1 row <-> API shape mapping
+```
+
+---
+
+## Data model
+
+```sql
+poll(id, title, dates, start_hour, end_hour, created_at)
+participant(id, poll_id, name, slots, updated_at)
+```
+
+- `poll.id` — 6-char slug from a no-ambiguous-characters alphabet
+  (`23456789abcdefghjkmnpqrstuvwxyz`). Unguessability is the only access control.
+- `poll.dates` — JSON array of local-date strings `"YYYY-MM-DD"`.
+- `start_hour` inclusive, `end_hour` exclusive, 30-minute slots between them.
+- `participant.id` — generated client-side, kept in `localStorage` under
+  `pb:me:<pollId>`. This is the whole identity system.
+- `participant.slots` — JSON array of slot keys `"YYYY-MM-DD#<minutesFromMidnight>"`,
+  e.g. `"2026-08-20#1080"` is 6:00pm on Aug 20.
+
+Slots are stored denormalised as JSON rather than one row per slot. At this scale
+it's one row read per person instead of hundreds, and D1's free tier bills by rows
+read. If you ever need to query *across* polls ("when is Dave usually free"),
+that's the point to normalise.
+
+### API
+
+All responses are JSON. Errors are `{ "error": "human readable message" }` with a
+4xx status; `src/lib/api.js` surfaces `error` directly into the UI.
+
+| Method | Path | Body | Returns |
+| --- | --- | --- | --- |
+| POST | `/api/poll` | `{title, dates[], startHour, endHour}` | `201 {id}` |
+| GET | `/api/poll/:id` | — | `{poll, participants[]}` |
+| PUT | `/api/poll/:id` | same as POST | `{poll, participants[]}` |
+| PUT | `/api/poll/:id/participant/:pid` | `{name, slots[]}` | `{id, name, slots, updatedAt}` |
+| DELETE | `/api/poll/:id/participant/:pid` | — | `{ok:true}` |
+
+---
+
+## Design decisions worth not undoing
+
+**One row per participant, upserted.** Two people painting the grid at the same
+moment write different rows, so there's no last-write-wins clobbering. Do not
+"simplify" this into a single JSON blob per poll.
+
+**Local state wins for your own row.** `Board.jsx` seeds `mine` from the server
+exactly once per identity (`seededFor` ref) and never re-seeds from background
+refreshes. Without that guard, the 20-second poll would overwrite cells the user
+is mid-drag on. Writes are debounced 700 ms.
+
+**Slot sanitising is server-side and silent.** `sanitizeSlots()` drops malformed
+keys, off-grid times, and non-30-minute offsets rather than erroring, so a stale
+client just loses cells that no longer exist. Editing a poll re-clamps every
+participant's stored slots so tallies never count invisible cells.
+
+**Poll id in the query string (`/?p=abc123`), not a path.** A static host only
+ever has to serve `index.html`, so a shared link cannot 404 on a missing
+SPA-fallback rule. Current wrangler rejects the usual Pages `/* /index.html 200`
+splat as an infinite loop, and a dead link is the one bug this app can't ship
+with. To move to `/p/:id`, add SPA fallback on the host and change `readRoute` /
+`pollPath` in `App.jsx` — those two functions are the entire router.
+
+**Touch painting hit-tests manually.** `touchmove` fires on the element where the
+touch *started*, so `Grid.jsx` attaches a non-passive listener to the container
+and uses `document.elementFromPoint` + `data-key`. `preventDefault` stops the
+page scrolling mid-stroke. This is fiddly; test on a real phone after changing it.
+
+**All colour comes from `src/theme.js`.** Tailwind is used for layout only. The
+palette is an outdoor court at dusk — deep blue-green surface, white court lines,
+and ball yellow reserved for exactly one meaning: a claimed block of time. If you
+add a feature, don't give it a new accent colour.
+
+---
+
+## Known limitations
+
+- **No auth.** Anyone with the link can edit anyone's row, or delete the poll's
+  data via the API. Fine for coworkers; the slug is the only privacy. To lock it
+  down, put Cloudflare Access in front of `/api/*`.
+- **Identity is per-browser.** Same person on a second device creates a second
+  row. There's a "that's me" claim flow on the name screen that adopts an
+  existing participant id — which also means anyone can impersonate anyone.
+- **No live updates.** 20-second polling. For real-time, a SQLite-backed Durable
+  Object holding a WebSocket per poll is the free-tier-compatible path.
+- **No timezone handling.** Everything is the viewer's local clock, with dates as
+  bare strings. Fine for one office, wrong for a distributed team.
+- **No poll deletion or expiry.** Rows accumulate forever. A scheduled Worker
+  deleting polls older than ~90 days would be a sensible addition.
+- **No tests.** Vitest for `shared/validate.js` and the best-window ranking in
+  `Board.jsx` would cover the parts most likely to break.
+
+## Ideas, roughly in value order
+
+1. Copy a "best window" straight into an `.ics` invite.
+2. Slack unfurl with live counts (needs a Slack app + `og:` refresh).
+3. Recurring weekly polls that auto-roll to next week.
+4. Minimum-players threshold ("show me windows where at least 4 can play").
+5. Court booking notes / location field on the poll.

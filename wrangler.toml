@@ -1,0 +1,10 @@
+name = "pickleball-scheduler"
+compatibility_date = "2026-08-12"
+pages_build_output_dir = "dist"
+
+# Created with: wrangler d1 create pickleball
+# Paste the returned database_id below, then run: npm run db:init:remote
+[[d1_databases]]
+binding = "DB"
+database_name = "pickleball"
+database_id = "7c79fc04-7a01-4b26-94eb-77cd3df3dce3"

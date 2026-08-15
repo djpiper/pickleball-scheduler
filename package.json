@@ -1,0 +1,27 @@
+{
+  "name": "pickleball-scheduler",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "wrangler pages dev --port 8788",
+    "build": "vite build",
+    "preview": "npm run build && wrangler pages dev --port 8788",
+    "deploy": "npm run build && wrangler pages deploy",
+    "db:init:local": "wrangler d1 execute pickleball --local --file=./schema.sql",
+    "db:init:remote": "wrangler d1 execute pickleball --remote --file=./schema.sql"
+  },
+  "dependencies": {
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.1",
+    "wrangler": "^4.122.0"
+  }
+}
