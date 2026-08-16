@@ -5,7 +5,7 @@ import { Wordmark, Panel, Label, Tiny, TextField, Notice } from './ui.jsx';
 
 const HORIZON_DAYS = 28;
 
-export default function Setup({ initial, onSubmit, onCancel, busy, error }) {
+export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpenCourts }) {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -152,6 +152,12 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error }) {
 
       {error && <Notice tone="bad">{error}</Notice>}
       {!error && sel.size === 0 && <Notice>Pick at least one day to continue.</Notice>}
+
+      {onOpenCourts && (
+        <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.hair}` }}>
+          <Tiny onClick={onOpenCourts}>Court locations →</Tiny>
+        </div>
+      )}
     </div>
   );
 }

@@ -26,6 +26,21 @@ export const rowToParticipant = (row) => ({
   updatedAt: row.updated_at,
 });
 
+// SQLite has no BOOLEAN, so the flag columns are 0/1 and become real booleans here.
+export const rowToCourt = (row) => ({
+  id: row.id,
+  name: row.name,
+  area: row.area,
+  courtCount: row.court_count,
+  indoor: !!row.indoor,
+  lighted: !!row.lighted,
+  tennis: !!row.tennis,
+  surface: row.surface,
+  notes: row.notes,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
 export const getPollRow = (env, id) =>
   env.DB.prepare('SELECT * FROM poll WHERE id = ?').bind(id).first();
 
@@ -33,6 +48,16 @@ export const getParticipantRows = async (env, pollId) => {
   const { results } = await env.DB
     .prepare('SELECT id, name, slots, updated_at FROM participant WHERE poll_id = ? ORDER BY updated_at ASC')
     .bind(pollId)
+    .all();
+  return results ?? [];
+};
+
+export const getCourtRow = (env, id) =>
+  env.DB.prepare('SELECT * FROM court WHERE id = ?').bind(id).first();
+
+export const getCourtRows = async (env) => {
+  const { results } = await env.DB
+    .prepare('SELECT * FROM court ORDER BY name COLLATE NOCASE ASC')
     .all();
   return results ?? [];
 };

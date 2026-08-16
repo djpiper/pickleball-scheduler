@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { RefreshCw, Settings2, Eraser, Check, Users, Link2, Pencil } from 'lucide-react';
+import { RefreshCw, Settings2, Eraser, Check, Users, Link2, Pencil, MapPin } from 'lucide-react';
 import { C, MONO, SANS } from '../theme.js';
 import { DOW, MON, dparse, ck, fmtClock, slotCountFor, minsAtFor } from '../lib/time.js';
 import { saveParticipant, deleteParticipant } from '../lib/api.js';
@@ -9,7 +9,7 @@ import Grid from './Grid.jsx';
 const SAVE_DEBOUNCE_MS = 700;
 const POLL_INTERVAL_MS = 20000;
 
-export default function Board({ pollId, poll, participants, identity, onIdentity, onReload, onEditConfig }) {
+export default function Board({ pollId, poll, participants, identity, onIdentity, onReload, onEditConfig, onOpenCourts }) {
   const [view, setView] = useState('mine');
   const [mine, setMine] = useState(() => new Set());
   const [status, setStatus] = useState('saved'); // saved | saving | error
@@ -317,6 +317,14 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
 
       {menuOpen && (
         <Panel>
+          <button
+            type="button"
+            onClick={onOpenCourts}
+            className="w-full text-left py-2 flex items-center gap-2"
+            style={{ color: C.line, fontSize: 14 }}
+          >
+            <MapPin size={14} style={{ color: C.dim }} /> Court locations
+          </button>
           <button
             type="button"
             onClick={onEditConfig}
