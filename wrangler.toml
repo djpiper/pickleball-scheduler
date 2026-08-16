@@ -4,7 +4,24 @@ pages_build_output_dir = "dist"
 
 # Created with: wrangler d1 create pickleball
 # Paste the returned database_id below, then run: npm run db:init:remote
+#
+# The top-level binding is what local development uses (`npm run dev:api`).
+# Deployed environments use the [env.*] blocks below: production is the real
+# poll data, preview is a throwaway database shared by every PR preview.
+# Pages has no per-branch config, so all previews share one database.
 [[d1_databases]]
 binding = "DB"
 database_name = "pickleball"
 database_id = "7c79fc04-7a01-4b26-94eb-77cd3df3dce3"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "pickleball"
+database_id = "7c79fc04-7a01-4b26-94eb-77cd3df3dce3"
+
+# Created with: wrangler d1 create pickleball-preview
+# Schema applied with: npm run db:init:preview
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "pickleball-preview"
+database_id = "f57f1956-e239-47fa-8c30-914f0cb65cb0"
