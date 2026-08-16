@@ -129,9 +129,21 @@ Requires two repo secrets: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
 (token needs Account → Cloudflare Pages: Edit, plus D1: Edit for the binding).
 
 PRs from forks are skipped — GitHub does not expose secrets to them, so the
-deploy could only fail. Preview deployments are not deleted when a PR closes;
-`npx wrangler pages deployment list --project-name pickleball-scheduler` and
-`... deployment delete <id> --force` clean them up if they pile up.
+deploy could only fail.
+
+Closing or merging a PR deletes every deployment it made (one per push) and
+rewrites the comment so the dead URL is not left looking live. To clear
+strays by hand:
+
+```bash
+npx wrangler pages deployment list --project-name pickleball-scheduler \
+  --environment preview --json | jq -r '.[] | "\(.Branch) \(.Id)"'
+npx wrangler pages deployment delete <id> --project-name pickleball-scheduler --force
+```
+
+The preview database is deliberately left alone on close, since rows there
+cannot be attributed to a PR. Reset it with a `DROP TABLE` plus
+`npm run db:init:preview` when it gets noisy.
 
 ---
 
