@@ -8,7 +8,13 @@ export const LIMITS = {
   dates: 28, // days a poll may span
   slots: 2000, // 28 days x ~48 half-hours, with headroom
   idLen: 32,
+  courtName: 60,
+  area: 80,
+  notes: 200,
+  courtCount: 40, // courts at one location
 };
+
+export const SURFACES = ['concrete', 'asphalt', 'tile', 'wood', 'other'];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SLOT_RE = /^\d{4}-\d{2}-\d{2}#\d{1,4}$/;
@@ -78,3 +84,39 @@ export function sanitizeSlots(slots, poll) {
 }
 
 export const cleanName = (v) => clampStr(v, LIMITS.name);
+
+/**
+ * Validate a court create/update payload.
+ * @returns {{ok: true, value: object} | {ok: false, error: string}}
+ */
+export function validateCourt(body) {
+  if (!body || typeof body !== 'object') return { ok: false, error: 'Body must be a JSON object' };
+
+  const name = clampStr(body.name, LIMITS.courtName);
+  if (!name) return { ok: false, error: 'Name is required' };
+
+  const courtCount = Number(body.courtCount);
+  if (!Number.isInteger(courtCount) || courtCount < 1 || courtCount > LIMITS.courtCount) {
+    return { ok: false, error: `Court count must be a whole number 1-${LIMITS.courtCount}` };
+  }
+
+  // An unknown surface is dropped rather than rejected, the same way sanitizeSlots
+  // drops off-grid cells: a stale client shouldn't lose its whole submission over a
+  // field nobody reads for correctness.
+  const surfaceRaw = clampStr(body.surface, 20).toLowerCase();
+  const surface = SURFACES.includes(surfaceRaw) ? surfaceRaw : '';
+
+  return {
+    ok: true,
+    value: {
+      name,
+      area: clampStr(body.area, LIMITS.area),
+      courtCount,
+      indoor: Boolean(body.indoor),
+      lighted: Boolean(body.lighted),
+      tennis: Boolean(body.tennis),
+      surface,
+      notes: clampStr(body.notes, LIMITS.notes),
+    },
+  };
+}

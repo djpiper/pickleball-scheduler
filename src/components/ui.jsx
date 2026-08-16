@@ -98,6 +98,81 @@ export function TextField({ value, onChange, onEnter, placeholder, maxLength }) 
   );
 }
 
+export function TextArea({ value, onChange, placeholder, maxLength, rows = 2 }) {
+  return (
+    <textarea
+      value={value}
+      rows={rows}
+      maxLength={maxLength}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full rounded px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-white"
+      style={{
+        background: C.deep,
+        color: C.line,
+        border: `1px solid ${C.hair}`,
+        fontSize: 15,
+        resize: 'vertical',
+      }}
+    />
+  );
+}
+
+// An on/off chip. Pressed state borrows the day-chip look from Setup.jsx, minus
+// the ball yellow — that colour means "a claimed block of time" and nothing else.
+export function Toggle({ value, onChange, children }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!value)}
+      aria-pressed={value}
+      className="rounded px-3 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      style={{
+        background: value ? C.panelHi : C.deep,
+        color: value ? C.line : C.dim,
+        border: `1px solid ${value ? C.line : C.hair}`,
+        fontFamily: MONO,
+        fontSize: 11,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Two-or-more-way pick, rendered as one joined bar of segments.
+export function Segmented({ value, onChange, options }) {
+  return (
+    <div className="inline-flex rounded overflow-hidden" style={{ border: `1px solid ${C.hair}` }}>
+      {options.map(([val, text]) => {
+        const on = val === value;
+        return (
+          <button
+            key={String(val)}
+            type="button"
+            onClick={() => onChange(val)}
+            aria-pressed={on}
+            className="px-4 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{
+              background: on ? C.panelHi : 'transparent',
+              color: on ? C.line : C.dim,
+              fontFamily: MONO,
+              fontSize: 11,
+              letterSpacing: '0.14em',
+              fontWeight: on ? 600 : 400,
+              textTransform: 'uppercase',
+            }}
+          >
+            {text}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Notice({ children, tone = 'dim' }) {
   const color = tone === 'bad' ? C.coral : C.dim;
   return (

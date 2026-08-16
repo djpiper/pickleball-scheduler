@@ -1,27 +1,34 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import { C, MONO, SANS } from './theme.js';
 import { createPoll, fetchPoll, updatePoll } from './lib/api.js';
 import { loadIdentity, saveIdentity } from './lib/identity.js';
 import Setup from './components/Setup.jsx';
 import Board from './components/Board.jsx';
+import Courts from './components/Courts.jsx';
 import { Wordmark, Notice } from './components/ui.jsx';
 
-// Routes are just two shapes, so there's no router dependency:
+// Routes are just three shapes, so there's no router dependency:
 //   /            → create a poll
 //   /?p=<pollId> → the grid
+//   /?courts     → the court directory (site-wide, not tied to a poll)
 //
 // The poll id lives in the query string rather than a path segment on purpose:
 // a static host only ever has to serve index.html, so shared links can't 404 on
 // a missing SPA-fallback rule. (Cloudflare's `_redirects` splat is rejected as a
 // loop by current wrangler, and a dead link is the one bug this app can't have.)
-// To move to /p/:id later, add SPA fallback on the host and swap these two fns.
+// To move to /p/:id later, add SPA fallback on the host and swap these fns.
 const readRoute = () => {
-  const id = new URLSearchParams(window.location.search).get('p');
-  return id && /^[A-Za-z0-9_-]{1,32}$/.test(id) ? { name: 'poll', pollId: id } : { name: 'create' };
+  const q = new URLSearchParams(window.location.search);
+  const id = q.get('p');
+  if (id && /^[A-Za-z0-9_-]{1,32}$/.test(id)) return { name: 'poll', pollId: id };
+  if (q.has('courts')) return { name: 'courts' };
+  return { name: 'create' };
 };
 
 const pollPath = (id) => `${window.location.pathname}?p=${id}`;
+
+const courtsPath = () => `${window.location.pathname}?courts`;
 
 export default function App() {
   const [route, setRoute] = useState(readRoute);
@@ -43,6 +50,15 @@ export default function App() {
   const go = (path) => {
     window.history.pushState({}, '', path);
     setRoute(readRoute());
+  };
+
+  // Where "Back" out of the directory lands. Remembered rather than using
+  // history.back() so that opening /?courts directly still has somewhere to go.
+  const returnTo = useRef(null);
+
+  const openCourts = () => {
+    returnTo.current = window.location.search;
+    go(courtsPath());
   };
 
   const load = useCallback(async (pollId) => {
@@ -103,7 +119,11 @@ export default function App() {
     <div className="min-h-screen w-full" style={{ background: C.deep, color: C.line, fontFamily: SANS }}>
       <div className="mx-auto w-full px-4 py-6" style={{ maxWidth: 980 }}>
         {route.name === 'create' && (
-          <Setup onSubmit={handleCreate} busy={busy} error={formError} />
+          <Setup onSubmit={handleCreate} busy={busy} error={formError} onOpenCourts={openCourts} />
+        )}
+
+        {route.name === 'courts' && (
+          <Courts onBack={() => go(`${window.location.pathname}${returnTo.current ?? ''}`)} />
         )}
 
         {route.name === 'poll' && state.status === 'loading' && <Spinner />}
@@ -141,6 +161,7 @@ export default function App() {
               onIdentity={handleIdentity}
               onReload={() => load(route.pollId)}
               onEditConfig={() => setEditing(true)}
+              onOpenCourts={openCourts}
             />
           )
         )}

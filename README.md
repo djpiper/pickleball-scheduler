@@ -4,6 +4,10 @@ A When2Meet-style availability grid for a small group. One person creates a poll
 shares the link, everyone paints the half-hour blocks they could play, and the app
 ranks the windows where the most people overlap.
 
+Alongside the poll there's a shared **court directory** — a site-wide list of places
+to play, with court counts, indoor/outdoor, lights, and whether the lines are shared
+with tennis. Anyone can add to or correct it.
+
 Built for ~4–8 coworkers picking a court time. Not a general-purpose meeting tool.
 
 ---
@@ -14,8 +18,11 @@ Working end to end and deployed live at
 **https://pickleball-scheduler-13v.pages.dev**
 
 Verified locally against a real (simulated) D1 database: poll create/read/edit,
-participant upsert/delete, input validation, slot re-clamping when the grid
-shrinks, and static asset serving.
+participant upsert/delete, court add/edit/delete, input validation, slot re-clamping
+when the grid shrinks, and static asset serving. The court directory was driven
+end-to-end in a real browser against both the Vite dev server and the built app
+served by wrangler — add, edit, duplicate-name refusal, two-step delete, and
+navigation to and from a poll without losing painted cells.
 
 Verified against the deployed environment: static assets serve over HTTPS, and a
 poll round-tripped through the real D1 database — `POST /api/poll` created it and
@@ -165,7 +172,7 @@ cannot be attributed to a PR. Reset it with a `DROP TABLE` plus
 index.html                Vite entry, og: tags for Slack unfurls
 vite.config.js            React + Tailwind plugins, /api proxy to :8788
 wrangler.toml             Pages config + D1 binding (database_id is a placeholder)
-schema.sql                Two tables, one index. Idempotent.
+schema.sql                Three tables, two indexes. Idempotent.
 
 src/
   main.jsx                React root
@@ -179,6 +186,7 @@ src/
     Setup.jsx             create/edit form (day chips + hour selects)
     Board.jsx             state owner: save loop, roster, best-window ranking
     Grid.jsx              the grid itself + mouse/touch painting
+    Courts.jsx            the court directory: list, add/edit form, delete
     ui.jsx                small shared primitives
 
 functions/api/poll/
@@ -187,6 +195,11 @@ functions/api/poll/
                                 PUT    /api/poll/:id
   [id]/participant/[pid].js     PUT    /api/poll/:id/participant/:pid
                                 DELETE /api/poll/:id/participant/:pid
+functions/api/court/
+  index.js                      GET    /api/court
+                                POST   /api/court
+  [id].js                       PUT    /api/court/:id
+                                DELETE /api/court/:id
 
 shared/                   imported by Functions; lives outside functions/ so
   http.js                 Cloudflare never mistakes a helper for a route
@@ -201,6 +214,8 @@ shared/                   imported by Functions; lives outside functions/ so
 ```sql
 poll(id, title, dates, start_hour, end_hour, created_at)
 participant(id, poll_id, name, slots, updated_at)
+court(id, name, area, court_count, indoor, lighted, tennis, surface, notes,
+      created_at, updated_at)
 ```
 
 - `poll.id` — 6-char slug from a no-ambiguous-characters alphabet
@@ -211,6 +226,10 @@ participant(id, poll_id, name, slots, updated_at)
   `pb:me:<pollId>`. This is the whole identity system.
 - `participant.slots` — JSON array of slot keys `"YYYY-MM-DD#<minutesFromMidnight>"`,
   e.g. `"2026-08-20#1080"` is 6:00pm on Aug 20.
+- `court` has **no** `poll_id` and no owner column — the directory is site-wide and
+  wiki-editable. `indoor` / `lighted` / `tennis` are 0/1 INTEGERs (SQLite has no
+  BOOLEAN) and become real JSON booleans in `rowToCourt`. `surface` is one of
+  `concrete | asphalt | tile | wood | other`, or `''` when unknown.
 
 Slots are stored denormalised as JSON rather than one row per slot. At this scale
 it's one row read per person instead of hundreds, and D1's free tier bills by rows
@@ -229,6 +248,13 @@ All responses are JSON. Errors are `{ "error": "human readable message" }` with 
 | PUT | `/api/poll/:id` | same as POST | `{poll, participants[]}` |
 | PUT | `/api/poll/:id/participant/:pid` | `{name, slots[]}` | `{id, name, slots, updatedAt}` |
 | DELETE | `/api/poll/:id/participant/:pid` | — | `{ok:true}` |
+| GET | `/api/court` | — | `{courts[]}`, name-sorted |
+| POST | `/api/court` | `{name, area, courtCount, indoor, lighted, tennis, surface, notes}` | `201 {court}` |
+| PUT | `/api/court/:id` | same as POST | `{court}` |
+| DELETE | `/api/court/:id` | — | `{ok:true}` |
+
+Court create/rename returns `409` if another court already has that name
+(case-insensitive) — the fix is to edit the existing entry, which anyone can do.
 
 ---
 
@@ -247,6 +273,13 @@ is mid-drag on. Writes are debounced 700 ms.
 keys, off-grid times, and non-30-minute offsets rather than erroring, so a stale
 client just loses cells that no longer exist. Editing a poll re-clamps every
 participant's stored slots so tallies never count invisible cells.
+
+**The court directory is unowned on purpose.** Anyone can add, edit, or delete any
+entry — there is no identity check, not even the localStorage one the poll uses. The
+list is small and shared by people who know each other; a per-device owner column
+would mostly mean nobody can fix a typo someone else made. The duplicate-name guard
+and the two-step delete confirm are what stand in for permissions. Revisit this only
+if the list is being vandalised, and add Cloudflare Access rather than a fake owner id.
 
 **Poll id in the query string (`/?p=abc123`), not a path.** A static host only
 ever has to serve `index.html`, so a shared link cannot 404 on a missing
@@ -280,9 +313,16 @@ add a feature, don't give it a new accent colour.
 - **No timezone handling.** Everything is the viewer's local clock, with dates as
   bare strings. Fine for one office, wrong for a distributed team.
 - **No poll deletion or expiry.** Rows accumulate forever. A scheduled Worker
-  deleting polls older than ~90 days would be a sensible addition.
-- **No tests.** Vitest for `shared/validate.js` and the best-window ranking in
-  `Board.jsx` would cover the parts most likely to break.
+  deleting polls older than ~90 days would be a sensible addition. The court
+  directory is deliberately exempt — it's meant to accumulate.
+- **The court directory is world-writable.** Any visitor can delete any court, and
+  the API is reachable without opening the UI. Same fix as above: Cloudflare Access
+  in front of `/api/*`.
+- **No tests.** Vitest for `shared/validate.js` (both `validatePoll` and
+  `validateCourt`) and the best-window ranking in `Board.jsx` would cover the parts
+  most likely to break.
+- **No search or filtering on the directory.** Fine at a dozen courts; a filter row
+  ("indoor only", "lighted") is the obvious next step past that.
 
 ## Ideas, roughly in value order
 
@@ -290,4 +330,5 @@ add a feature, don't give it a new accent colour.
 2. Slack unfurl with live counts (needs a Slack app + `og:` refresh).
 3. Recurring weekly polls that auto-roll to next week.
 4. Minimum-players threshold ("show me windows where at least 4 can play").
-5. Court booking notes / location field on the poll.
+5. Point a poll at a court from the directory, so the link says where as well as when.
+6. Filter the directory (indoor only, lighted, ≥4 courts).

@@ -21,3 +21,21 @@ CREATE TABLE IF NOT EXISTS participant (
 );
 
 CREATE INDEX IF NOT EXISTS idx_participant_poll ON participant(poll_id);
+
+-- The court directory is site-wide: no poll_id, no owner. Every visitor sees the
+-- same list and anyone may edit it.
+CREATE TABLE IF NOT EXISTS court (
+  id           TEXT PRIMARY KEY,   -- short random slug, same alphabet as poll.id
+  name         TEXT NOT NULL,
+  area         TEXT NOT NULL,      -- address or neighbourhood; '' when unset
+  court_count  INTEGER NOT NULL,   -- 1-40. Not `count` — that's a SQL builtin.
+  indoor       INTEGER NOT NULL,   -- 0 outdoor, 1 indoor
+  lighted      INTEGER NOT NULL,   -- 0/1
+  tennis       INTEGER NOT NULL,   -- 0/1, shares its lines with tennis
+  surface      TEXT NOT NULL,      -- '' | concrete | asphalt | tile | wood | other
+  notes        TEXT NOT NULL,      -- '' when unset
+  created_at   INTEGER NOT NULL,   -- epoch ms
+  updated_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_court_name ON court(name);
