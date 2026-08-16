@@ -104,6 +104,35 @@ If you later wire the repo to GitHub via the Cloudflare dashboard, set the build
 command to `npm run build` and the output directory to `dist`; the D1 binding
 carries over from `wrangler.toml`.
 
+### PR previews
+
+`.github/workflows/preview.yml` deploys every pull request and comments the URL
+on the PR:
+
+```
+https://pr-<number>.pickleball-scheduler-13v.pages.dev
+```
+
+That alias always points at the newest commit on the PR — the comment is edited
+in place rather than reposted. Each build also gets an immutable
+`https://<hash>.pickleball-scheduler-13v.pages.dev` URL, linked in the same
+comment.
+
+Previews are Pages **preview** deployments, so they pick up `[env.preview]` from
+`wrangler.toml` and talk to the **`pickleball-preview`** D1 database, not real
+poll data. It is one shared throwaway database across all PRs — Pages does not
+support per-branch configuration. Wipe it whenever with
+`npm run db:init:preview` after a `DROP TABLE`, and apply schema changes there
+too or previews of a schema-changing PR will 500.
+
+Requires two repo secrets: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
+(token needs Account → Cloudflare Pages: Edit, plus D1: Edit for the binding).
+
+PRs from forks are skipped — GitHub does not expose secrets to them, so the
+deploy could only fail. Preview deployments are not deleted when a PR closes;
+`npx wrangler pages deployment list --project-name pickleball-scheduler` and
+`... deployment delete <id> --force` clean them up if they pile up.
+
 ---
 
 ## Repo map
