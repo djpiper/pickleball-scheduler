@@ -1,18 +1,38 @@
 import { useRef, useEffect, useCallback } from 'react';
-import { C, MONO } from '../theme.js';
+import { C, MONO, ballAlpha } from '../theme.js';
 import { DOW, dparse, ck, slotCountFor, minsAtFor } from '../lib/time.js';
+
+// A week of columns has to fit a phone without sideways scrolling, since the
+// calendar expands one week at a time: 7 x 38 + 46 = 312px.
+const HOUR_COL = 46;
+const DAY_COL_MIN = 38;
+const ROW_H = 32;
 
 /**
  * The court. Two modes:
  *   view="mine"  — paint your own blocks (drag with a mouse, drag with a finger)
  *   view="all"   — read-only heatmap; tapping a cell selects it
  *
+ * `dates` is the slice of the poll to draw — the calendar passes one week at a
+ * time. It defaults to the whole poll so the grid still stands on its own.
+ *
  * Painting model: mousedown/touchstart on a cell decides the stroke direction
  * (if the first cell was empty you're adding, otherwise erasing) and every cell
  * entered during the stroke gets that same value. Same behaviour as When2Meet,
  * and it's what makes filling a column fast.
  */
-export default function Grid({ poll, mine, onPaint, view, counts, headcount, focusCell, onFocusCell, enabled }) {
+export default function Grid({
+  poll,
+  dates = poll.dates,
+  mine,
+  onPaint,
+  view,
+  counts,
+  headcount,
+  focusCell,
+  onFocusCell,
+  enabled,
+}) {
   const slots = slotCountFor(poll);
   const minsAt = minsAtFor(poll);
   const dragRef = useRef(null);
@@ -68,7 +88,7 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
     return () => el.removeEventListener('touchmove', onMove);
   }, [extend]);
 
-  const cols = `52px repeat(${poll.dates.length}, minmax(60px, 1fr))`;
+  const cols = `${HOUR_COL}px repeat(${dates.length}, minmax(${DAY_COL_MIN}px, 1fr))`;
 
   // The hour column stays put while the days scroll under it. Each row is its
   // own grid, so stickiness lives on the individual left-hand cells; they need
@@ -84,10 +104,10 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
   return (
     <div className="rounded overflow-hidden" style={{ border: `1px solid ${C.hair}`, background: C.panel }}>
       <div className="overflow-x-auto">
-        <div ref={gridRef} style={{ minWidth: poll.dates.length * 62 + 52 }}>
+        <div ref={gridRef} style={{ minWidth: dates.length * DAY_COL_MIN + HOUR_COL }}>
           <div className="grid" style={{ gridTemplateColumns: cols, borderBottom: `2px solid ${C.line}` }}>
             <div style={frozen} />
-            {poll.dates.map((d, di) => {
+            {dates.map((d, di) => {
               const dt = dparse(d);
               return (
                 <div key={d} className="py-2 text-center" style={{ borderLeft: di ? `1px solid ${C.hair}` : 'none' }}>
@@ -109,7 +129,7 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
                   className="flex items-start justify-end pr-2"
                   style={{
                     ...frozen,
-                    height: 34,
+                    height: ROW_H,
                     fontFamily: MONO,
                     fontSize: 10,
                     color: C.dim,
@@ -118,13 +138,13 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
                   <span style={{ transform: 'translateY(-6px)' }}>{onHour ? label(m) : ''}</span>
                 </div>
 
-                {poll.dates.map((d, di) => {
+                {dates.map((d, di) => {
                   const key = ck(d, m);
                   const who = counts[key] || [];
                   const isMine = mine.has(key);
                   let bg = 'transparent';
                   if (view === 'mine') bg = isMine ? C.ball : 'transparent';
-                  else if (who.length) bg = `rgba(217,230,60,${0.16 + 0.84 * (who.length / headcount)})`;
+                  else if (who.length) bg = ballAlpha(0.16 + 0.84 * (who.length / headcount));
 
                   const interactive = view === 'mine' && enabled;
 
@@ -150,7 +170,7 @@ export default function Grid({ poll, mine, onPaint, view, counts, headcount, foc
                       }}
                       className="focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                       style={{
-                        height: 34,
+                        height: ROW_H,
                         background: bg,
                         borderLeft: di ? `1px solid ${C.hair}` : 'none',
                         borderTop: onHour ? `1px solid ${C.hair}` : '1px dotted rgba(220,233,231,0.10)',

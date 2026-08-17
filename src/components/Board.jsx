@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { RefreshCw, Settings2, Eraser, Check, Users, Link2, Pencil } from 'lucide-react';
 import { C, MONO, SANS } from '../theme.js';
-import { DOW, MON, dparse, ck, fmtClock, slotCountFor, minsAtFor } from '../lib/time.js';
+import { DOW, MON, dparse, ck, fmtClock, fmtSpan, slotCountFor, minsAtFor } from '../lib/time.js';
 import { saveParticipant, deleteParticipant, saveCourtVotes } from '../lib/api.js';
 import { Wordmark, Panel, Label, IconBtn, TextField, Notice } from './ui.jsx';
-import Grid from './Grid.jsx';
+import Calendar from './Calendar.jsx';
 import { CourtDirectory } from './Courts.jsx';
 
 const SAVE_DEBOUNCE_MS = 700;
@@ -467,7 +467,7 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
         </div>
       )}
 
-      <Grid
+      <Calendar
         poll={poll}
         mine={mine}
         onPaint={paint}
@@ -517,7 +517,7 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
           <span key={p.id} className="rounded px-3 py-1" style={{ border: `1px solid ${C.hair}`, color: C.line, fontSize: 12.5 }}>
             {p.name}
             <span style={{ fontFamily: MONO, color: C.dim, marginLeft: 6, fontSize: 11 }}>
-              {(p.slots || []).length * 30}m
+              {fmtSpan((p.slots || []).length)}
             </span>
           </span>
         ))}
@@ -525,8 +525,8 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
 
       <Notice>
         {view === 'mine'
-          ? 'Drag across the grid to paint the blocks you could play. Everyone opening this link marks their own — and sees everyone else\u2019s.'
-          : 'Brighter blocks mean more players free. Tap a block to see who.'}
+          ? 'Open a week, then drag across it to paint the blocks you could play. Everyone opening this link marks their own — and sees everyone else\u2019s.'
+          : 'Brighter days and blocks mean more players free. Tap a block to see who.'}
       </Notice>
         </>
       )}
