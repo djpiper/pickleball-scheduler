@@ -3,9 +3,9 @@
 //
 // One row per participant is deliberate: two people painting the grid at the
 // same moment write different rows, so there's no last-write-wins clobbering.
-import { json, fail, readJson } from '../../../../../shared/http.js';
-import { isValidId, cleanName, sanitizeSlots } from '../../../../../shared/validate.js';
-import { rowToPoll, getPollRow } from '../../../../../shared/db.js';
+import { json, fail, readJson } from '../../../../../../shared/http.js';
+import { isValidId, cleanName, sanitizeSlots } from '../../../../../../shared/validate.js';
+import { rowToPoll, getPollRow } from '../../../../../../shared/db.js';
 
 export async function onRequestPut({ params, request, env }) {
   if (!isValidId(params.id) || !isValidId(params.pid)) return fail(400, 'Bad id');
@@ -41,9 +41,12 @@ export async function onRequestPut({ params, request, env }) {
 export async function onRequestDelete({ params, env }) {
   if (!isValidId(params.id) || !isValidId(params.pid)) return fail(400, 'Bad id');
 
-  await env.DB.prepare('DELETE FROM participant WHERE id = ? AND poll_id = ?')
-    .bind(params.pid, params.id)
-    .run();
+  // Their court votes go with them — otherwise "clear my times" would leave a
+  // ghost vote propping up a location nobody is still backing.
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM participant WHERE id = ? AND poll_id = ?').bind(params.pid, params.id),
+    env.DB.prepare('DELETE FROM court_vote WHERE participant_id = ? AND poll_id = ?').bind(params.pid, params.id),
+  ]);
 
   return json({ ok: true });
 }

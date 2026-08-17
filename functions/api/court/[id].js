@@ -54,6 +54,10 @@ export async function onRequestPut({ params, request, env }) {
 export async function onRequestDelete({ params, env }) {
   if (!isValidId(params.id)) return fail(400, 'Bad court id');
 
-  await env.DB.prepare('DELETE FROM court WHERE id = ?').bind(params.id).run();
+  // Votes for a deleted court would otherwise linger in every poll that backed it.
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM court WHERE id = ?').bind(params.id),
+    env.DB.prepare('DELETE FROM court_vote WHERE court_id = ?').bind(params.id),
+  ]);
   return json({ ok: true });
 }

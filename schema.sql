@@ -39,3 +39,22 @@ CREATE TABLE IF NOT EXISTS court (
 );
 
 CREATE INDEX IF NOT EXISTS idx_court_name ON court(name);
+
+-- Approval voting: one row per (participant, court) they'd be happy with, so two
+-- people voting at the same moment write different rows. A missing row is a "no",
+-- which is why there is no value column.
+--
+-- Not denormalised into participant.slots-style JSON on purpose: that would need
+-- an ALTER on a table that already exists in the deployed database, and schema.sql
+-- has to stay re-runnable. Volume is tiny either way — people x courts, not
+-- people x half-hours.
+CREATE TABLE IF NOT EXISTS court_vote (
+  poll_id        TEXT NOT NULL,
+  participant_id TEXT NOT NULL,
+  court_id       TEXT NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  PRIMARY KEY (poll_id, participant_id, court_id),
+  FOREIGN KEY (poll_id) REFERENCES poll(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_court_vote_poll ON court_vote(poll_id);

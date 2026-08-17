@@ -161,7 +161,6 @@ export default function App() {
               onIdentity={handleIdentity}
               onReload={() => load(route.pollId)}
               onEditConfig={() => setEditing(true)}
-              onOpenCourts={openCourts}
             />
           )
         )}

@@ -2,7 +2,14 @@
 // PUT /api/poll/:id  — edit the poll's title, days, or hours
 import { json, fail, readJson } from '../../../../shared/http.js';
 import { validatePoll, isValidId, sanitizeSlots } from '../../../../shared/validate.js';
-import { rowToPoll, rowToParticipant, getPollRow, getParticipantRows } from '../../../../shared/db.js';
+import {
+  rowToPoll,
+  rowToParticipant,
+  getPollRow,
+  getParticipantRows,
+  getCourtVoteRows,
+  withCourtVotes,
+} from '../../../../shared/db.js';
 
 export async function onRequestGet({ params, env }) {
   if (!isValidId(params.id)) return fail(400, 'Bad poll id');
@@ -11,8 +18,11 @@ export async function onRequestGet({ params, env }) {
   if (!row) return fail(404, 'No poll with that link');
 
   const poll = rowToPoll(row);
-  const rows = await getParticipantRows(env, poll.id);
-  return json({ poll, participants: rows.map(rowToParticipant) });
+  const [rows, votes] = await Promise.all([
+    getParticipantRows(env, poll.id),
+    getCourtVoteRows(env, poll.id),
+  ]);
+  return json({ poll, participants: withCourtVotes(rows.map(rowToParticipant), votes) });
 }
 
 export async function onRequestPut({ params, request, env }) {
@@ -46,9 +56,12 @@ export async function onRequestPut({ params, request, env }) {
   }
   if (rewrites.length) await env.DB.batch(rewrites);
 
-  const fresh = await getParticipantRows(env, params.id);
+  const [fresh, votes] = await Promise.all([
+    getParticipantRows(env, params.id),
+    getCourtVoteRows(env, params.id),
+  ]);
   return json({
     poll: { id: params.id, title, dates, startHour, endHour, createdAt: row.created_at },
-    participants: fresh.map(rowToParticipant),
+    participants: withCourtVotes(fresh.map(rowToParticipant), votes),
   });
 }
