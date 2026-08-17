@@ -40,6 +40,12 @@ export const saveParticipant = (pollId, pid, { name, slots }) =>
 export const deleteParticipant = (pollId, pid) =>
   send(`/poll/${pollId}/participant/${pid}`, { method: 'DELETE' });
 
+export const saveCourtVotes = (pollId, pid, courts) =>
+  send(`/poll/${pollId}/participant/${pid}/courts`, {
+    method: 'PUT',
+    body: JSON.stringify({ courts }),
+  });
+
 export const fetchCourts = () => send('/court');
 
 export const createCourt = (court) =>

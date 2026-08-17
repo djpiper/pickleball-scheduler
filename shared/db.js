@@ -52,6 +52,26 @@ export const getParticipantRows = async (env, pollId) => {
   return results ?? [];
 };
 
+// Votes live in their own table, so the poll payload stitches them onto each
+// participant — the client then treats `courts` exactly like `slots`.
+export const getCourtVoteRows = async (env, pollId) => {
+  const { results } = await env.DB
+    .prepare('SELECT participant_id, court_id FROM court_vote WHERE poll_id = ?')
+    .bind(pollId)
+    .all();
+  return results ?? [];
+};
+
+export const withCourtVotes = (participants, voteRows) => {
+  const byParticipant = new Map();
+  for (const v of voteRows) {
+    const list = byParticipant.get(v.participant_id) ?? [];
+    list.push(v.court_id);
+    byParticipant.set(v.participant_id, list);
+  }
+  return participants.map((p) => ({ ...p, courts: byParticipant.get(p.id) ?? [] }));
+};
+
 export const getCourtRow = (env, id) =>
   env.DB.prepare('SELECT * FROM court WHERE id = ?').bind(id).first();
 

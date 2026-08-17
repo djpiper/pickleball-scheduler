@@ -1,17 +1,20 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { RefreshCw, Settings2, Eraser, Check, Users, Link2, Pencil, MapPin } from 'lucide-react';
+import { RefreshCw, Settings2, Eraser, Check, Users, Link2, Pencil } from 'lucide-react';
 import { C, MONO, SANS } from '../theme.js';
 import { DOW, MON, dparse, ck, fmtClock, slotCountFor, minsAtFor } from '../lib/time.js';
-import { saveParticipant, deleteParticipant } from '../lib/api.js';
+import { saveParticipant, deleteParticipant, saveCourtVotes } from '../lib/api.js';
 import { Wordmark, Panel, Label, IconBtn, TextField, Notice } from './ui.jsx';
 import Grid from './Grid.jsx';
+import { CourtDirectory } from './Courts.jsx';
 
 const SAVE_DEBOUNCE_MS = 700;
 const POLL_INTERVAL_MS = 20000;
 
-export default function Board({ pollId, poll, participants, identity, onIdentity, onReload, onEditConfig, onOpenCourts }) {
+export default function Board({ pollId, poll, participants, identity, onIdentity, onReload, onEditConfig }) {
+  const [tab, setTab] = useState('times'); // times | courts
   const [view, setView] = useState('mine');
   const [mine, setMine] = useState(() => new Set());
+  const [myCourts, setMyCourts] = useState(() => new Set());
   const [status, setStatus] = useState('saved'); // saved | saving | error
   const [refreshing, setRefreshing] = useState(false);
   const [focusCell, setFocusCell] = useState(null);
@@ -32,6 +35,7 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
     if (seededFor.current === identity.id) return;
     const rec = participants.find((p) => p.id === identity.id);
     setMine(new Set(rec?.slots ?? []));
+    setMyCourts(new Set(rec?.courts ?? []));
     seededFor.current = identity.id;
   }, [participants, identity.id]);
 
@@ -68,6 +72,37 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
       });
     },
     [persist, identity.name]
+  );
+
+  // Votes get their own debounce timer: sharing the slots one would mean backing a
+  // court cancels a pending save of cells you just painted.
+  const voteTimer = useRef(null);
+  useEffect(() => () => clearTimeout(voteTimer.current), []);
+
+  const toggleCourt = useCallback(
+    (courtId) => {
+      setMyCourts((prev) => {
+        const next = new Set(prev);
+        if (next.has(courtId)) next.delete(courtId);
+        else next.add(courtId);
+
+        clearTimeout(voteTimer.current);
+        setStatus('saving');
+        voteTimer.current = setTimeout(async () => {
+          try {
+            await saveCourtVotes(pollId, identity.id, [...next]);
+            setStatus('saved');
+            setError('');
+          } catch (e) {
+            setStatus('error');
+            setError(e.message);
+          }
+        }, SAVE_DEBOUNCE_MS);
+
+        return next;
+      });
+    },
+    [pollId, identity.id]
   );
 
   // Background sync. Cheap: one GET, four rows.
@@ -109,7 +144,9 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
 
   const clearMine = async () => {
     clearTimeout(timer.current);
+    clearTimeout(voteTimer.current);
     setMine(new Set());
+    setMyCourts(new Set());
     setMenuOpen(false);
     try {
       await deleteParticipant(pollId, identity.id);
@@ -133,14 +170,27 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
   // Everyone except me from the server, plus my live local state.
   const roster = useMemo(() => {
     const others = participants.filter((p) => p.id !== identity.id);
-    return named ? [...others, { id: identity.id, name: identity.name, slots: [...mine] }] : others;
-  }, [participants, identity, named, mine]);
+    return named
+      ? [...others, { id: identity.id, name: identity.name, slots: [...mine], courts: [...myCourts] }]
+      : others;
+  }, [participants, identity, named, mine, myCourts]);
 
   const counts = useMemo(() => {
     const map = {};
     for (const p of roster) {
       for (const s of p.slots || []) {
         (map[s] = map[s] || []).push(p.name);
+      }
+    }
+    return map;
+  }, [roster]);
+
+  // Same shape as `counts`, keyed by court id instead of slot key.
+  const courtCounts = useMemo(() => {
+    const map = {};
+    for (const p of roster) {
+      for (const id of p.courts || []) {
+        (map[id] = map[id] || []).push(p.name);
       }
     }
     return map;
@@ -180,6 +230,56 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
         }`}
       />
 
+      {/* Two things a group has to settle — when, and where — so two tabs. */}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex rounded overflow-hidden" style={{ border: `1px solid ${C.hair}` }}>
+          {[
+            ['times', 'Times'],
+            ['courts', 'Courts'],
+          ].map(([k, text]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => {
+                setTab(k);
+                setFocusCell(null);
+                setMenuOpen(false);
+              }}
+              aria-pressed={tab === k}
+              className="px-4 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{
+                background: tab === k ? C.ball : 'transparent',
+                color: tab === k ? C.ink : C.dim,
+                fontFamily: MONO,
+                fontSize: 11,
+                letterSpacing: '0.14em',
+                fontWeight: 600,
+              }}
+            >
+              {text.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        {named && (
+          <div className="flex items-center gap-1">
+            <span style={{ fontFamily: MONO, fontSize: 10, color: status === 'error' ? C.coral : C.dim, letterSpacing: '0.1em' }}>
+              {status === 'saving' ? 'SAVING' : status === 'error' ? 'RETRY' : 'SAVED'}
+            </span>
+            <IconBtn onClick={copyLink} label="Copy link">
+              <Link2 size={15} />
+            </IconBtn>
+            <IconBtn onClick={refresh} label="Refresh">
+              <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+            </IconBtn>
+            <IconBtn onClick={() => setMenuOpen((v) => !v)} label="Options">
+              <Settings2 size={15} />
+            </IconBtn>
+          </div>
+        )}
+      </div>
+
+      {tab === 'times' && (
       <div className="rounded mb-4" style={{ background: C.panel, border: `1px solid ${C.hair}` }}>
         <div
           className="px-4 pt-3 pb-2 flex items-center justify-between"
@@ -223,8 +323,9 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
           })
         )}
       </div>
+      )}
 
-      {!named ? (
+      {!named && (
         <Panel>
           <Label>Who's playing</Label>
           <div className="flex gap-2 mt-2">
@@ -265,51 +366,6 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
             </div>
           )}
         </Panel>
-      ) : (
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex rounded overflow-hidden" style={{ border: `1px solid ${C.hair}` }}>
-            {[
-              ['mine', 'My times'],
-              ['all', 'Everyone'],
-            ].map(([k, text]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => {
-                  setView(k);
-                  setFocusCell(null);
-                  if (k === 'all') refresh();
-                }}
-                className="px-4 py-2"
-                style={{
-                  background: view === k ? C.ball : 'transparent',
-                  color: view === k ? C.ink : C.dim,
-                  fontFamily: MONO,
-                  fontSize: 11,
-                  letterSpacing: '0.14em',
-                  fontWeight: 600,
-                }}
-              >
-                {text.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-1">
-            <span style={{ fontFamily: MONO, fontSize: 10, color: status === 'error' ? C.coral : C.dim, letterSpacing: '0.1em' }}>
-              {status === 'saving' ? 'SAVING' : status === 'error' ? 'RETRY' : 'SAVED'}
-            </span>
-            <IconBtn onClick={copyLink} label="Copy link">
-              <Link2 size={15} />
-            </IconBtn>
-            <IconBtn onClick={refresh} label="Refresh">
-              <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
-            </IconBtn>
-            <IconBtn onClick={() => setMenuOpen((v) => !v)} label="Options">
-              <Settings2 size={15} />
-            </IconBtn>
-          </div>
-        </div>
       )}
 
       {copied && <Notice>Link copied — paste it into Slack.</Notice>}
@@ -317,14 +373,6 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
 
       {menuOpen && (
         <Panel>
-          <button
-            type="button"
-            onClick={onOpenCourts}
-            className="w-full text-left py-2 flex items-center gap-2"
-            style={{ color: C.line, fontSize: 14 }}
-          >
-            <MapPin size={14} style={{ color: C.dim }} /> Court locations
-          </button>
           <button
             type="button"
             onClick={onEditConfig}
@@ -354,6 +402,69 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
             <Users size={14} /> Switch player on this device
           </button>
         </Panel>
+      )}
+
+      {tab === 'courts' ? (
+        <>
+          <CourtDirectory
+            vote={{
+              mine: myCourts,
+              counts: courtCounts,
+              headcount,
+              enabled: named,
+              onToggle: toggleCourt,
+            }}
+            header={
+              <div
+                className="px-4 pt-3 pb-2 flex items-center justify-between"
+                style={{ borderBottom: `1px solid ${C.hair}` }}
+              >
+                <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.22em', color: C.dim }}>
+                  COURTS
+                </span>
+                <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.14em', color: C.dim }}>
+                  {roster.length} IN
+                </span>
+              </div>
+            }
+          />
+          <Notice>
+            {named
+              ? 'Tap every court you’d be happy with — not just your favourite. The one most people can live with rises to the top.'
+              : 'Add your name above to back a court.'}
+          </Notice>
+        </>
+      ) : (
+        <>
+      {named && (
+        <div className="flex rounded overflow-hidden mb-3" style={{ border: `1px solid ${C.hair}`, width: 'fit-content' }}>
+          {[
+            ['mine', 'My times'],
+            ['all', 'Everyone'],
+          ].map(([k, text]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => {
+                setView(k);
+                setFocusCell(null);
+                if (k === 'all') refresh();
+              }}
+              aria-pressed={view === k}
+              className="px-4 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{
+                background: view === k ? C.panelHi : 'transparent',
+                color: view === k ? C.line : C.dim,
+                fontFamily: MONO,
+                fontSize: 11,
+                letterSpacing: '0.14em',
+                fontWeight: 600,
+              }}
+            >
+              {text.toUpperCase()}
+            </button>
+          ))}
+        </div>
       )}
 
       <Grid
@@ -417,6 +528,8 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
           ? 'Drag across the grid to paint the blocks you could play. Everyone opening this link marks their own — and sees everyone else\u2019s.'
           : 'Brighter blocks mean more players free. Tap a block to see who.'}
       </Notice>
+        </>
+      )}
     </div>
   );
 }

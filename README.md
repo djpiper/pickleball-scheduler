@@ -4,9 +4,11 @@ A When2Meet-style availability grid for a small group. One person creates a poll
 shares the link, everyone paints the half-hour blocks they could play, and the app
 ranks the windows where the most people overlap.
 
-Alongside the poll there's a shared **court directory** — a site-wide list of places
-to play, with court counts, indoor/outdoor, lights, and whether the lines are shared
-with tennis. Anyone can add to or correct it.
+A poll has two tabs, because a group has two things to settle. **Times** is the
+grid. **Courts** is approval voting over a shared, site-wide directory of places to
+play — court counts, indoor/outdoor, lights, and whether the lines are shared with
+tennis. Everyone ticks every court they'd be happy with, and the one the most people
+can live with rises to the top. Anyone can add to or correct the directory.
 
 Built for ~4–8 coworkers picking a court time. Not a general-purpose meeting tool.
 
@@ -18,11 +20,13 @@ Working end to end and deployed live at
 **https://pickleball-scheduler-13v.pages.dev**
 
 Verified locally against a real (simulated) D1 database: poll create/read/edit,
-participant upsert/delete, court add/edit/delete, input validation, slot re-clamping
-when the grid shrinks, and static asset serving. The court directory was driven
-end-to-end in a real browser against both the Vite dev server and the built app
-served by wrangler — add, edit, duplicate-name refusal, two-step delete, and
-navigation to and from a poll without losing painted cells.
+participant upsert/delete, court add/edit/delete, court approval voting, input
+validation, slot re-clamping when the grid shrinks, and static asset serving.
+
+Both tabs were driven end-to-end in a real browser against the Vite dev server and
+the built app served by wrangler: adding and editing a court, duplicate-name
+refusal, two-step delete, backing and withdrawing a vote, live re-ranking, counts
+surviving a reload, and switching tabs without losing painted cells or votes.
 
 Verified against the deployed environment: static assets serve over HTTPS, and a
 poll round-tripped through the real D1 database — `POST /api/poll` created it and
@@ -172,7 +176,7 @@ cannot be attributed to a PR. Reset it with a `DROP TABLE` plus
 index.html                Vite entry, og: tags for Slack unfurls
 vite.config.js            React + Tailwind plugins, /api proxy to :8788
 wrangler.toml             Pages config + D1 binding (database_id is a placeholder)
-schema.sql                Three tables, two indexes. Idempotent.
+schema.sql                Four tables, three indexes. Idempotent.
 
 src/
   main.jsx                React root
@@ -184,17 +188,20 @@ src/
     identity.js           per-poll localStorage identity
   components/
     Setup.jsx             create/edit form (day chips + hour selects)
-    Board.jsx             state owner: save loop, roster, best-window ranking
+    Board.jsx             state owner: TIMES/COURTS tabs, save loops, roster,
+                          best-window ranking, vote tallies
     Grid.jsx              the grid itself + mouse/touch painting
-    Courts.jsx            the court directory: list, add/edit form, delete
+    Courts.jsx            CourtDirectory (list + add/edit/delete, optionally a
+                          ballot) and the standalone /?courts page around it
     ui.jsx                small shared primitives
 
 functions/api/poll/
   index.js                      POST   /api/poll
   [id]/index.js                 GET    /api/poll/:id
                                 PUT    /api/poll/:id
-  [id]/participant/[pid].js     PUT    /api/poll/:id/participant/:pid
-                                DELETE /api/poll/:id/participant/:pid
+  [id]/participant/[pid]/index.js   PUT    /api/poll/:id/participant/:pid
+                                    DELETE /api/poll/:id/participant/:pid
+  [id]/participant/[pid]/courts.js  PUT    /api/poll/:id/participant/:pid/courts
 functions/api/court/
   index.js                      GET    /api/court
                                 POST   /api/court
@@ -216,6 +223,7 @@ poll(id, title, dates, start_hour, end_hour, created_at)
 participant(id, poll_id, name, slots, updated_at)
 court(id, name, area, court_count, indoor, lighted, tennis, surface, notes,
       created_at, updated_at)
+court_vote(poll_id, participant_id, court_id, updated_at)
 ```
 
 - `poll.id` — 6-char slug from a no-ambiguous-characters alphabet
@@ -230,6 +238,10 @@ court(id, name, area, court_count, indoor, lighted, tennis, surface, notes,
   wiki-editable. `indoor` / `lighted` / `tennis` are 0/1 INTEGERs (SQLite has no
   BOOLEAN) and become real JSON booleans in `rowToCourt`. `surface` is one of
   `concrete | asphalt | tile | wood | other`, or `''` when unknown.
+- `court_vote` is where the site-wide directory meets a single poll: an approval is
+  the *existence* of a row, so there is no value column and a missing row is a "no".
+  `GET /api/poll/:id` stitches these onto each participant as `courts`, so the
+  client treats votes and slots the same way.
 
 Slots are stored denormalised as JSON rather than one row per slot. At this scale
 it's one row read per person instead of hundreds, and D1's free tier bills by rows
@@ -248,6 +260,7 @@ All responses are JSON. Errors are `{ "error": "human readable message" }` with 
 | PUT | `/api/poll/:id` | same as POST | `{poll, participants[]}` |
 | PUT | `/api/poll/:id/participant/:pid` | `{name, slots[]}` | `{id, name, slots, updatedAt}` |
 | DELETE | `/api/poll/:id/participant/:pid` | — | `{ok:true}` |
+| PUT | `/api/poll/:id/participant/:pid/courts` | `{courts[]}` | `{id, courts, updatedAt}` |
 | GET | `/api/court` | — | `{courts[]}`, name-sorted |
 | POST | `/api/court` | `{name, area, courtCount, indoor, lighted, tennis, surface, notes}` | `201 {court}` |
 | PUT | `/api/court/:id` | same as POST | `{court}` |
@@ -273,6 +286,19 @@ is mid-drag on. Writes are debounced 700 ms.
 keys, off-grid times, and non-30-minute offsets rather than erroring, so a stale
 client just loses cells that no longer exist. Editing a poll re-clamps every
 participant's stored slots so tallies never count invisible cells.
+
+**Approval voting, not a single pick.** Everyone ticks every court they could live
+with, and the tally ranks by how many people backed each. A 2-2-1 split between
+favourites tells you nothing; approvals tell you which court nobody objects to,
+which is the actual question. It also mirrors the time grid exactly — mark
+everything that works, count the overlap — so the two tabs teach each other.
+
+**Vote writes replace the whole set.** `PUT .../participant/:pid/courts` deletes
+that person's rows and re-inserts them in one batch, so a retry after a flaky save
+can't double-count. It's a separate endpoint from the participant upsert on purpose:
+votes and times are painted at different moments, and a shared endpoint would let a
+vote write clobber cells the user is mid-drag on. They also get separate debounce
+timers in `Board.jsx` for the same reason.
 
 **The court directory is unowned on purpose.** Anyone can add, edit, or delete any
 entry — there is no identity check, not even the localStorage one the poll uses. The
@@ -318,9 +344,12 @@ add a feature, don't give it a new accent colour.
 - **The court directory is world-writable.** Any visitor can delete any court, and
   the API is reachable without opening the UI. Same fix as above: Cloudflare Access
   in front of `/api/*`.
-- **No tests.** Vitest for `shared/validate.js` (both `validatePoll` and
-  `validateCourt`) and the best-window ranking in `Board.jsx` would cover the parts
-  most likely to break.
+- **No tests.** Vitest for `shared/validate.js` (`validatePoll`, `validateCourt`,
+  `sanitizeCourtVotes`) plus the best-window ranking and vote tally in `Board.jsx`
+  would cover the parts most likely to break.
+- **Votes are per-poll, courts are global.** Deleting a court removes it from every
+  poll that was voting on it, including ones already decided. Fine at this scale;
+  worth a soft-delete flag if the directory ever gets busy.
 - **No search or filtering on the directory.** Fine at a dozen courts; a filter row
   ("indoor only", "lighted") is the obvious next step past that.
 
@@ -330,5 +359,5 @@ add a feature, don't give it a new accent colour.
 2. Slack unfurl with live counts (needs a Slack app + `og:` refresh).
 3. Recurring weekly polls that auto-roll to next week.
 4. Minimum-players threshold ("show me windows where at least 4 can play").
-5. Point a poll at a court from the directory, so the link says where as well as when.
-6. Filter the directory (indoor only, lighted, ≥4 courts).
+5. Filter the directory (indoor only, lighted, ≥4 courts).
+6. Lock in a winning court + window together, and put both in the `.ics`.

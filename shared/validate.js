@@ -12,6 +12,7 @@ export const LIMITS = {
   area: 80,
   notes: 200,
   courtCount: 40, // courts at one location
+  courtVotes: 200, // courts one person may approve in a poll
 };
 
 export const SURFACES = ['concrete', 'asphalt', 'tile', 'wood', 'other'];
@@ -84,6 +85,23 @@ export function sanitizeSlots(slots, poll) {
 }
 
 export const cleanName = (v) => clampStr(v, LIMITS.name);
+
+/**
+ * Keep only well-formed court ids from an approval-vote payload.
+ * Ids that no longer exist are left in rather than checked against the court
+ * table: deleting a court already clears its votes, and a stale client shouldn't
+ * get a hard error for a court that vanished mid-session.
+ */
+export function sanitizeCourtVotes(courts) {
+  if (!Array.isArray(courts)) return [];
+  const clean = [];
+  for (const id of courts) {
+    if (!isValidId(id)) continue;
+    clean.push(id);
+    if (clean.length >= LIMITS.courtVotes) break;
+  }
+  return [...new Set(clean)];
+}
 
 /**
  * Validate a court create/update payload.
