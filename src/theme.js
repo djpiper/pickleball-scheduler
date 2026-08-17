@@ -12,6 +12,11 @@ export const C = {
   ink: '#04161F',
 };
 
+// Ball yellow at a given opacity — how a grid cell draws "this many people are
+// free". Kept here so the one raw rgb triple in the app lives beside the token
+// it comes from.
+export const ballAlpha = (a) => `rgba(217,230,60,${a})`;
+
 // No webfonts on purpose: the scoreboard/court-signage feel comes from the
 // system mono face, and skipping the network request keeps first paint instant.
 export const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';

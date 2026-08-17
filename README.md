@@ -1,11 +1,16 @@
 # Pickleball Scheduler
 
-A When2Meet-style availability grid for a small group. One person creates a poll,
-shares the link, everyone paints the half-hour blocks they could play, and the app
-ranks the windows where the most people overlap.
+A When2Meet-style availability calendar for a small group. One person creates a
+poll, shares the link, everyone paints the half-hour blocks they could play, and
+the app ranks the windows where the most people overlap.
+
+Creating a poll takes one click: every day for the next four weeks, 9am–9pm, is on
+the calendar by default. Availability is marked on a month view — weeks stack like
+a wall calendar, and clicking one opens it into the painting grid for those seven
+days.
 
 A poll has two tabs, because a group has two things to settle. **Times** is the
-grid. **Courts** is approval voting over a shared, site-wide directory of places to
+calendar. **Courts** is approval voting over a shared, site-wide directory of places to
 play — court counts, indoor/outdoor, lights, and whether the lines are shared with
 tennis. Everyone ticks every court they'd be happy with, and the one the most people
 can live with rises to the top. Anyone can add to or correct the directory.
@@ -27,6 +32,12 @@ Both tabs were driven end-to-end in a real browser against the Vite dev server a
 the built app served by wrangler: adding and editing a court, duplicate-name
 refusal, two-step delete, backing and withdrawing a vote, live re-ranking, counts
 surviving a reload, and switching tabs without losing painted cells or votes.
+
+The calendar was driven the same way against a five-person poll: one-click create
+on the defaults, accordion open/collapse, drag-painting inside an open week, the
+per-day bars and week summaries in both "my times" and "everyone", cells surviving
+a reload, narrowing the poll to weekends and watching the month reshape and
+re-clamp, and a 360px viewport with no horizontal scroll anywhere on the page.
 
 Verified against the deployed environment: static assets serve over HTTPS, and a
 poll round-tripped through the real D1 database — `POST /api/poll` created it and
@@ -214,14 +225,18 @@ src/
   index.css               Tailwind import, reduced-motion block
   theme.js                ALL colour + font tokens live here
   lib/
-    time.js               Date/slot key helpers — read this before touching the grid
+    time.js               Date/slot key helpers, poll defaults, week grouping —
+                          read this before touching the calendar
     api.js                fetch wrapper; throws Errors with renderable messages
     identity.js           per-poll localStorage identity
   components/
-    Setup.jsx             create/edit form (day chips + hour selects)
+    Setup.jsx             create/edit form; defaults to everything, with the day
+                          chips + hour selects folded behind "narrow it down"
     Board.jsx             state owner: TIMES/COURTS tabs, save loops, roster,
                           best-window ranking, vote tallies
-    Grid.jsx              the grid itself + mouse/touch painting
+    Calendar.jsx          month view: week rows + per-day summaries, one week
+                          open at a time
+    Grid.jsx              the painting surface for one week + mouse/touch painting
     Courts.jsx            CourtDirectory (list + add/edit/delete, optionally a
                           ballot) and the standalone /?courts page around it
     ui.jsx                small shared primitives
@@ -303,6 +318,27 @@ Court create/rename returns `409` if another court already has that name
 ---
 
 ## Design decisions worth not undoing
+
+**Creating a poll asks for nothing but a name.** Every day for four weeks, 9am–9pm
+(`DEFAULT_START_HOUR` / `DEFAULT_END_HOUR` / `HORIZON_DAYS` in `time.js`). The
+organiser doesn't know which days are worth asking about — that's the entire point
+of the poll — so making them guess up front is a decision asked at the one moment
+nobody can answer it. The day chips and hour selects still exist, folded behind
+"narrow it down" and unfolded by default when *editing*, for the case where whole
+days really are off the table for everyone. 28 days is also `LIMITS.dates`, so the
+default payload sits exactly on the cap.
+
+**A month of weeks, one open at a time.** The default poll is 672 cells; as one
+flat grid that's a horizontal scroll nobody finishes. `Calendar.jsx` stacks weeks
+like a wall calendar and expands one into `Grid.jsx` on click. A week is the unit
+people think in, and seven columns fit a 360px phone with no sideways scrolling —
+which is why `Grid.jsx` caps its columns at 38px and its hour gutter at 46px.
+Collapsed rows still carry the answer: each day shows a ball-yellow bar for how
+much of it is claimed (your share of the day in "my times", the group's best
+overlap in "everyone"), so you can see where the group is converging without
+opening anything. The bar is deliberately not a tinted cell — ball yellow washed
+over the panel at half strength goes olive, and four weeks of olive squares reads
+as noise.
 
 **One row per participant, upserted.** Two people painting the grid at the same
 moment write different rows, so there's no last-write-wins clobbering. Do not

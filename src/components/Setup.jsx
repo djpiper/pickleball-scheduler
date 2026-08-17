@@ -1,31 +1,30 @@
 import { useMemo, useState } from 'react';
 import { C, MONO, SANS } from '../theme.js';
-import { DOW, dkey, fmtClock } from '../lib/time.js';
+import {
+  DOW,
+  dkey,
+  fmtClock,
+  horizonDays,
+  defaultDates,
+  HORIZON_DAYS,
+  DEFAULT_START_HOUR,
+  DEFAULT_END_HOUR,
+} from '../lib/time.js';
 import { Wordmark, Panel, Label, Tiny, TextField, Notice } from './ui.jsx';
 
-const HORIZON_DAYS = 28;
-
 export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpenCourts }) {
-  const today = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
-
-  const days = useMemo(
-    () =>
-      Array.from({ length: HORIZON_DAYS }, (_, i) => {
-        const d = new Date(today);
-        d.setDate(d.getDate() + i);
-        return d;
-      }),
-    [today]
-  );
+  const days = useMemo(() => horizonDays(), []);
 
   const [title, setTitle] = useState(initial?.title ?? 'Pickleball');
-  const [sel, setSel] = useState(new Set(initial?.dates ?? []));
-  const [startHour, setStartHour] = useState(initial?.startHour ?? 17);
-  const [endHour, setEndHour] = useState(initial?.endHour ?? 21);
+  const [sel, setSel] = useState(() => new Set(initial?.dates ?? defaultDates()));
+  const [startHour, setStartHour] = useState(initial?.startHour ?? DEFAULT_START_HOUR);
+  const [endHour, setEndHour] = useState(initial?.endHour ?? DEFAULT_END_HOUR);
+
+  // Creating a poll shouldn't require any decisions: the defaults already cover
+  // more than the group will use, and the calendar is where people narrow it
+  // down. Editing is the opposite — that's the one screen you open *to* change
+  // the days and hours — so it starts unfolded.
+  const [custom, setCustom] = useState(!!initial);
 
   const toggle = (k) =>
     setSel((prev) => {
@@ -36,6 +35,12 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
     });
 
   const quick = (fn) => setSel(new Set(days.filter(fn).map(dkey)));
+
+  const wholeHorizon = sel.size === days.length && days.every((d) => sel.has(dkey(d)));
+
+  const summary = `${
+    wholeHorizon ? `Every day for ${HORIZON_DAYS / 7} weeks` : `${sel.size} day${sel.size === 1 ? '' : 's'}`
+  } · ${fmtClock(startHour * 60)}–${endHour === 24 ? '12am' : fmtClock(endHour * 60)}`;
 
   const valid = sel.size > 0 && endHour > startHour && !busy;
 
@@ -52,8 +57,8 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
   return (
     <div style={{ fontFamily: SANS }}>
       <Wordmark
-        title={initial ? 'Edit the grid' : 'Pickleball'}
-        sub={initial ? 'Days and hours' : 'Set the window, then send the link'}
+        title={initial ? 'Edit the calendar' : 'Pickleball'}
+        sub={initial ? 'Days and hours' : 'Name it, send the link, everyone marks their times'}
       />
 
       <Panel>
@@ -64,60 +69,81 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
       </Panel>
 
       <Panel>
-        <div className="flex items-baseline justify-between gap-3 flex-wrap">
-          <Label>Days in play</Label>
-          <div className="flex gap-3">
-            <Tiny onClick={() => quick((d) => d < new Date(today.getTime() + 7 * 864e5))}>Next 7</Tiny>
-            <Tiny onClick={() => quick((d) => d.getDay() === 0 || d.getDay() === 6)}>Weekends</Tiny>
-            <Tiny onClick={() => setSel(new Set())}>Clear</Tiny>
-          </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <Label>What's on the calendar</Label>
+          <Tiny onClick={() => setCustom((v) => !v)}>{custom ? 'Done' : 'Narrow it down'}</Tiny>
         </div>
 
-        <div className="grid grid-cols-7 gap-1 mt-3">
-          {days.map((d) => {
-            const k = dkey(d);
-            const on = sel.has(k);
-            const weekend = d.getDay() === 0 || d.getDay() === 6;
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => toggle(k)}
-                aria-pressed={on}
-                className="rounded py-2 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{
-                  background: on ? C.ball : C.deep,
-                  color: on ? C.ink : weekend ? C.line : C.dim,
-                  border: `1px solid ${on ? C.ball : C.hair}`,
-                  fontFamily: MONO,
-                }}
-              >
-                <div style={{ fontSize: 9, letterSpacing: '0.1em', opacity: 0.8 }}>
-                  {DOW[d.getDay()].slice(0, 2)}
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>{d.getDate()}</div>
-              </button>
-            );
-          })}
+        <div className="mt-2" style={{ fontFamily: MONO, fontSize: 15, color: C.line }}>
+          {summary}
         </div>
-      </Panel>
 
-      <Panel>
-        <Label>Hours worth asking about</Label>
-        <div className="flex items-center gap-3 mt-3">
-          <HourSelect
-            value={startHour}
-            from={5}
-            to={22}
-            onChange={(v) => {
-              setStartHour(v);
-              if (v >= endHour) setEndHour(Math.min(24, v + 2));
-            }}
-          />
-          <span style={{ color: C.dim, fontFamily: MONO, fontSize: 12 }}>to</span>
-          <HourSelect value={endHour} from={startHour + 1} to={24} onChange={setEndHour} />
-        </div>
-        <Notice>Marked in 30-minute blocks. Keep the window tight — a shorter grid gets filled in.</Notice>
+        {!custom && (
+          <Notice>
+            Everyone picks the blocks that work for them, week by week. Only narrow this if whole
+            days or hours are off the table for the entire group.
+          </Notice>
+        )}
+
+        {custom && (
+          <>
+            <div className="flex items-baseline justify-between gap-3 mt-4">
+              <Label>Days in play</Label>
+              <div className="flex gap-3">
+                <Tiny onClick={() => setSel(new Set(defaultDates()))}>All</Tiny>
+                <Tiny onClick={() => quick((d) => d < new Date(days[0].getTime() + 7 * 864e5))}>Next 7</Tiny>
+                <Tiny onClick={() => quick((d) => d.getDay() === 0 || d.getDay() === 6)}>Weekends</Tiny>
+                <Tiny onClick={() => setSel(new Set())}>Clear</Tiny>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 mt-3">
+              {days.map((d) => {
+                const k = dkey(d);
+                const on = sel.has(k);
+                const weekend = d.getDay() === 0 || d.getDay() === 6;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => toggle(k)}
+                    aria-pressed={on}
+                    className="rounded py-2 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    style={{
+                      background: on ? C.ball : C.deep,
+                      color: on ? C.ink : weekend ? C.line : C.dim,
+                      border: `1px solid ${on ? C.ball : C.hair}`,
+                      fontFamily: MONO,
+                    }}
+                  >
+                    <div style={{ fontSize: 9, letterSpacing: '0.1em', opacity: 0.8 }}>
+                      {DOW[d.getDay()].slice(0, 2)}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{d.getDate()}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-5">
+              <Label>Hours worth asking about</Label>
+              <div className="flex items-center gap-3 mt-3">
+                <HourSelect
+                  value={startHour}
+                  from={5}
+                  to={22}
+                  onChange={(v) => {
+                    setStartHour(v);
+                    if (v >= endHour) setEndHour(Math.min(24, v + 2));
+                  }}
+                />
+                <span style={{ color: C.dim, fontFamily: MONO, fontSize: 12 }}>to</span>
+                <HourSelect value={endHour} from={startHour + 1} to={24} onChange={setEndHour} />
+              </div>
+              <Notice>Marked in 30-minute blocks.</Notice>
+            </div>
+          </>
+        )}
       </Panel>
 
       <div className="flex gap-2 mt-5">
@@ -136,7 +162,7 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
             opacity: valid ? 1 : 0.7,
           }}
         >
-          {busy ? 'Working' : initial ? 'Save changes' : 'Open the grid'}
+          {busy ? 'Working' : initial ? 'Save changes' : 'Open the calendar'}
         </button>
         {onCancel && (
           <button
