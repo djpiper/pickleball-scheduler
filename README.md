@@ -103,7 +103,7 @@ npm run deploy                             # first deploy creates the Pages proj
 ```
 
 You get `https://pickleball-scheduler-13v.pages.dev`. That URL is the thing to
-paste into Slack. Subsequent deploys are just `npm run deploy`.
+paste into Slack.
 
 Cloudflare picks that hostname when the project is created and may append a short
 suffix if the plain name is already taken globally — the project itself is still
@@ -111,9 +111,40 @@ named `pickleball-scheduler`. Each deploy also prints an immutable
 `https://<hash>.pickleball-scheduler-13v.pages.dev` preview URL; share the
 un-prefixed one above, since the hashed URL changes every deploy.
 
-If you later wire the repo to GitHub via the Cloudflare dashboard, set the build
-command to `npm run build` and the output directory to `dist`; the D1 binding
-carries over from `wrangler.toml`.
+After that, deploys are automatic — see below. `npm run deploy` still works from
+a laptop, but reaching for it means the live site is running code that is not on
+`main`, which the next merge will silently overwrite.
+
+### Production deploys
+
+`.github/workflows/deploy.yml` builds and deploys on every push to `main`, so
+merging a PR ships it. It also runs on `workflow_dispatch`, to retry a failed
+deploy or re-sync the live site to `main` without an empty commit.
+
+Each run applies `schema.sql` to the real database (the same thing
+`npm run db:init:remote` does) **before** deploying, since the new build may
+reference tables the live database does not have yet. That file is
+`CREATE TABLE/INDEX IF NOT EXISTS` throughout, so it is a no-op once applied.
+It only ever adds: a change that drops or alters a column still has to be run by
+hand, before the merge.
+
+Deploys are serialised (`concurrency: deploy-production`, no cancel-in-progress)
+rather than superseded — cancelling one mid-flight can leave the schema applied
+but the matching build unshipped. Two quick merges deploy in order and the later
+one wins.
+
+`--branch=main` is what makes the deploy production rather than another preview:
+it matches the Pages project's production branch, so it serves at the project
+URL and picks up `[env.production]` from `wrangler.toml`. If that deploy ever
+shows up at `main.pickleball-scheduler-13v.pages.dev` instead of the bare URL,
+the project's production branch is set to something other than `main` — fix it
+in the Cloudflare dashboard under Settings → Build, or change the flag to match.
+
+Uses the same two repo secrets as previews: `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN`.
+
+Do not also wire the repo to GitHub via the Cloudflare dashboard — that would
+deploy every push a second time, racing this workflow.
 
 ### PR previews
 

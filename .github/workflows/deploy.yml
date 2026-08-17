@@ -1,0 +1,63 @@
+name: Production deployment
+
+on:
+  push:
+    branches: [main]
+  # Lets a failed deploy be retried, or the live site be re-synced to main,
+  # without an empty commit.
+  workflow_dispatch:
+
+# Deploys are serialised rather than superseded: cancelling one mid-flight can
+# leave the schema applied but the matching build unshipped. Two quick merges
+# just deploy in order, and the later one wins.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy to production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Before the deploy, not after: the build being shipped may reference
+      # tables the live database does not have yet, and a request landing in
+      # the gap would 500. schema.sql is CREATE TABLE/INDEX IF NOT EXISTS
+      # throughout, so re-running it on every push is a no-op once applied.
+      #
+      # This is the same thing `npm run db:init:remote` does. It only ever
+      # adds; a change that drops or alters a column still has to be run by
+      # hand, since this cannot express it.
+      - name: Apply the schema to the production database
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: d1 execute pickleball --remote --file=./schema.sql -y
+
+      # --branch=main matches the Pages project's production branch, which is
+      # what makes this a production deployment rather than another preview:
+      # it serves at the project's own URL and picks up [env.production] from
+      # wrangler.toml (the real `pickleball` D1).
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy dist
+            --project-name=pickleball-scheduler
+            --branch=main
