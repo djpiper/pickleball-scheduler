@@ -110,13 +110,25 @@ carries over from `wrangler.toml`.
 on the PR:
 
 ```
-https://pr-<number>.pickleball-scheduler-13v.pages.dev
+https://<branch>.pickleball-scheduler-13v.pages.dev
 ```
 
 That alias always points at the newest commit on the PR — the comment is edited
 in place rather than reposted. Each build also gets an immutable
 `https://<hash>.pickleball-scheduler-13v.pages.dev` URL, linked in the same
 comment.
+
+Cloudflare derives the subdomain from the branch name: lowercased, every
+non-alphanumeric character turned into a dash, then cut to 28 characters.
+`Feature/Add_Thing` serves at `feature-add-thing`. Two branches whose first 28
+characters match after that mangling land on the same URL, and the newer deploy
+wins — nothing is lost, but the older PR's link silently starts showing the
+other branch. Cloudflare adds no hash to disambiguate, so keep the first 28
+characters distinctive on long branch names. Deployments record the branch name
+as typed, so cleanup on close is unaffected by any of this.
+
+The workflow refuses to deploy a branch whose name contains anything outside
+`A-Za-z0-9._/-`, since that name reaches wrangler as part of a command line.
 
 Previews are Pages **preview** deployments, so they pick up `[env.preview]` from
 `wrangler.toml` and talk to the **`pickleball-preview`** D1 database, not real
