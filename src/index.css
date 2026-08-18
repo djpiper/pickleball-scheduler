@@ -3,6 +3,10 @@
 html, body, #root { min-height: 100%; }
 body { margin: 0; background: #0A2532; -webkit-tap-highlight-color: transparent; }
 
+/* The day header mirrors the grid's horizontal scroll; its own bar would be noise. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

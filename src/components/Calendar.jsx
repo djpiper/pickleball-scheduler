@@ -14,6 +14,9 @@ import Grid from './Grid.jsx';
  * without scrolling sideways, and the collapsed rows still carry the answer:
  * each day is tinted by how much of it is claimed, so you can see where the
  * group is converging before opening anything.
+ *
+ * `highlight` and `stickyTop` are passed straight through to whichever week is
+ * open — the roster outline and the pinned day header are the grid's business.
  */
 export default function Calendar({
   poll,
@@ -25,6 +28,8 @@ export default function Calendar({
   focusCell,
   onFocusCell,
   enabled,
+  highlight,
+  stickyTop,
 }) {
   const slots = slotCountFor(poll);
   const minsAt = useMemo(() => minsAtFor(poll), [poll]);
@@ -171,6 +176,8 @@ export default function Calendar({
                   focusCell={focusCell}
                   onFocusCell={onFocusCell}
                   enabled={enabled}
+                  highlight={highlight}
+                  stickyTop={stickyTop}
                 />
               </div>
             )}

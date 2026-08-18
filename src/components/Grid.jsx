@@ -16,6 +16,10 @@ const ROW_H = 32;
  * `dates` is the slice of the poll to draw — the calendar passes one week at a
  * time. It defaults to the whole poll so the grid still stands on its own.
  *
+ * `highlight` (view="all" only) is a set of cell keys to draw a white court line
+ * around — the windows belonging to whoever is selected in the roster. Everything
+ * outside it fades back so the outlined shape reads at a glance.
+ *
  * Painting model: mousedown/touchstart on a cell decides the stroke direction
  * (if the first cell was empty you're adding, otherwise erasing) and every cell
  * entered during the stroke gets that same value. Same behaviour as When2Meet,
@@ -32,11 +36,15 @@ export default function Grid({
   focusCell,
   onFocusCell,
   enabled,
+  highlight,
+  stickyTop = 0,
 }) {
   const slots = slotCountFor(poll);
   const minsAt = minsAtFor(poll);
   const dragRef = useRef(null);
   const gridRef = useRef(null);
+  const headScrollRef = useRef(null);
+  const bodyScrollRef = useRef(null);
 
   const begin = useCallback(
     (key) => {
@@ -88,7 +96,30 @@ export default function Grid({
     return () => el.removeEventListener('touchmove', onMove);
   }, [extend]);
 
+  // The day header rides in its own horizontal scroller so that it can be sticky
+  // against the page: sharing one overflow-x box with the rows would trap the
+  // stickiness inside that box, which never scrolls vertically. The two are kept
+  // in lockstep by mirroring scrollLeft — the equality check keeps the pair of
+  // scroll handlers from bouncing off each other.
+  useEffect(() => {
+    const head = headScrollRef.current;
+    const body = bodyScrollRef.current;
+    if (!head || !body) return;
+    const mirror = (from, to) => () => {
+      if (to.scrollLeft !== from.scrollLeft) to.scrollLeft = from.scrollLeft;
+    };
+    const onBody = mirror(body, head);
+    const onHead = mirror(head, body);
+    body.addEventListener('scroll', onBody, { passive: true });
+    head.addEventListener('scroll', onHead, { passive: true });
+    return () => {
+      body.removeEventListener('scroll', onBody);
+      head.removeEventListener('scroll', onHead);
+    };
+  }, []);
+
   const cols = `${HOUR_COL}px repeat(${dates.length}, minmax(${DAY_COL_MIN}px, 1fr))`;
+  const minWidth = dates.length * DAY_COL_MIN + HOUR_COL;
 
   // The hour column stays put while the days scroll under it. Each row is its
   // own grid, so stickiness lives on the individual left-hand cells; they need
@@ -102,10 +133,24 @@ export default function Grid({
   };
 
   return (
-    <div className="rounded overflow-hidden" style={{ border: `1px solid ${C.hair}`, background: C.panel }}>
-      <div className="overflow-x-auto">
-        <div ref={gridRef} style={{ minWidth: dates.length * DAY_COL_MIN + HOUR_COL }}>
-          <div className="grid" style={{ gridTemplateColumns: cols, borderBottom: `2px solid ${C.line}` }}>
+    // No `overflow: hidden` on the card — it would become the sticky header's
+    // scroll container and pin it to nothing.
+    <div className="rounded" style={{ border: `1px solid ${C.hair}`, background: C.panel }}>
+      <div
+        ref={headScrollRef}
+        className="overflow-x-auto no-scrollbar"
+        style={{
+          position: 'sticky',
+          top: stickyTop,
+          zIndex: 4,
+          background: C.panel,
+          borderBottom: `2px solid ${C.line}`,
+          borderTopLeftRadius: 4,
+          borderTopRightRadius: 4,
+        }}
+      >
+        <div style={{ minWidth }}>
+          <div className="grid" style={{ gridTemplateColumns: cols }}>
             <div style={frozen} />
             {dates.map((d, di) => {
               const dt = dparse(d);
@@ -119,7 +164,15 @@ export default function Grid({
               );
             })}
           </div>
+        </div>
+      </div>
 
+      <div
+        ref={bodyScrollRef}
+        className="overflow-x-auto"
+        style={{ borderBottomLeftRadius: 4, borderBottomRightRadius: 4 }}
+      >
+        <div ref={gridRef} style={{ minWidth }}>
           {Array.from({ length: slots }, (_, i) => {
             const m = minsAt(i);
             const onHour = m % 60 === 0;
@@ -142,9 +195,24 @@ export default function Grid({
                   const key = ck(d, m);
                   const who = counts[key] || [];
                   const isMine = mine.has(key);
+                  const lit = !!highlight && highlight.has(key);
+                  const faded = !!highlight && !lit;
                   let bg = 'transparent';
                   if (view === 'mine') bg = isMine ? C.ball : 'transparent';
-                  else if (who.length) bg = ballAlpha(0.16 + 0.84 * (who.length / headcount));
+                  else if (who.length) {
+                    const heat = 0.16 + 0.84 * (who.length / headcount);
+                    bg = ballAlpha(faded ? heat * 0.2 : heat);
+                  }
+
+                  // A lit run is drawn as one outlined window rather than a stack
+                  // of boxes: the sides are always there, the horizontal rules only
+                  // where the run starts and stops.
+                  const edges = [];
+                  if (lit) {
+                    edges.push(`inset 2px 0 0 0 ${C.line}`, `inset -2px 0 0 0 ${C.line}`);
+                    if (!highlight.has(ck(d, m - 30))) edges.push(`inset 0 2px 0 0 ${C.line}`);
+                    if (!highlight.has(ck(d, m + 30))) edges.push(`inset 0 -2px 0 0 ${C.line}`);
+                  }
 
                   const interactive = view === 'mine' && enabled;
 
@@ -174,6 +242,7 @@ export default function Grid({
                         background: bg,
                         borderLeft: di ? `1px solid ${C.hair}` : 'none',
                         borderTop: onHour ? `1px solid ${C.hair}` : '1px dotted rgba(220,233,231,0.10)',
+                        boxShadow: edges.join(', '),
                         outline: focusCell === key ? `2px solid ${C.coral}` : 'none',
                         outlineOffset: '-2px',
                         cursor: interactive ? 'pointer' : 'default',
