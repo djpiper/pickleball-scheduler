@@ -15,8 +15,10 @@ import Grid from './Grid.jsx';
  * each day is tinted by how much of it is claimed, so you can see where the
  * group is converging before opening anything.
  *
- * `highlight` and `stickyTop` are passed straight through to whichever week is
- * open — the roster outline and the pinned day header are the grid's business.
+ * `stickyTop` is passed straight through to whichever week is open — the pinned
+ * day header is the grid's business. `highlight` goes through too, but the
+ * collapsed strip reads it as well: a shared window is no use if it's hiding in
+ * a week nobody thought to open.
  */
 export default function Calendar({
   poll,
@@ -62,22 +64,25 @@ export default function Calendar({
     openWeek === null || weeks.some((w) => w.start === openWeek) ? openWeek : weeks[0]?.start;
 
   // Per-day rollups for the collapsed strip: how much of the day I've claimed,
-  // and the most people free at any one moment in it.
+  // the most people free at any one moment in it, and — when names are selected
+  // in the roster — how much of the day they all share.
   const stats = useMemo(() => {
     const out = {};
     for (const d of poll.dates) {
       let claimed = 0;
       let peak = 0;
+      let matched = 0;
       for (let i = 0; i < slots; i++) {
         const k = ck(d, minsAt(i));
         if (mine.has(k)) claimed++;
+        if (highlight?.has(k)) matched++;
         const c = counts[k]?.length ?? 0;
         if (c > peak) peak = c;
       }
-      out[d] = { claimed, peak };
+      out[d] = { claimed, peak, matched };
     }
     return out;
-  }, [poll.dates, slots, minsAt, mine, counts]);
+  }, [poll.dates, slots, minsAt, mine, counts, highlight]);
 
   const columns = 'repeat(7, minmax(0, 1fr)) 22px';
 
@@ -102,8 +107,16 @@ export default function Calendar({
 
         const claimed = w.dates.reduce((n, d) => n + stats[d].claimed, 0);
         const peak = w.dates.reduce((n, d) => Math.max(n, stats[d].peak), 0);
-        const summary =
-          view === 'mine'
+        const shared = w.dates.reduce((n, d) => n + stats[d].matched, 0);
+
+        // With names selected the row answers their question instead of the
+        // group's — otherwise a week holding the only shared window reads the
+        // same as one holding none.
+        const summary = highlight
+          ? shared
+            ? `${fmtSpan(shared)} shared`
+            : 'Nothing shared'
+          : view === 'mine'
             ? claimed
               ? `${fmtSpan(claimed)} marked`
               : 'Nothing marked'
@@ -149,6 +162,7 @@ export default function Calendar({
                     slots={slots}
                     headcount={headcount}
                     today={c.key === todayKey}
+                    picking={!!highlight}
                   />
                 ))}
                 <ChevronDown
@@ -188,7 +202,7 @@ export default function Calendar({
   );
 }
 
-function DayCell({ cell, stat, view, slots, headcount, today }) {
+function DayCell({ cell, stat, view, slots, headcount, today, picking }) {
   if (!cell.active) {
     return (
       <div
@@ -204,10 +218,18 @@ function DayCell({ cell, stat, view, slots, headcount, today }) {
   // strength goes olive, and four weeks of olive squares tells you nothing. A
   // filled rail keeps the yellow at full strength and stays readable at 40px
   // wide. It measures the same thing the day opens into — how much of the day I
-  // claimed, or how much of the group is free at the day's best moment.
-  const fill = view === 'mine' ? stat.claimed / slots : stat.peak / headcount;
-  const caption =
-    view === 'mine'
+  // claimed, how much of the group is free at the day's best moment, or, once
+  // names are selected, how much of it those names share.
+  const fill = picking
+    ? stat.matched / slots
+    : view === 'mine'
+      ? stat.claimed / slots
+      : stat.peak / headcount;
+  const caption = picking
+    ? stat.matched
+      ? fmtSpan(stat.matched)
+      : ''
+    : view === 'mine'
       ? stat.claimed
         ? fmtSpan(stat.claimed)
         : ''
@@ -215,10 +237,24 @@ function DayCell({ cell, stat, view, slots, headcount, today }) {
         ? `${stat.peak}/${headcount}`
         : '';
 
+  // A day carrying part of the outline is lit the way the grid lights it — court
+  // line around it, panel raised — so the same shape reads open or closed. Days
+  // with nothing in them recede rather than vanish; the week still has to look
+  // like a week.
+  const lit = picking && stat.matched > 0;
+  const dim = picking && !lit;
+
   return (
     <div
       className="rounded py-1.5 px-1 text-center"
-      style={{ border: `1px solid ${today ? C.line : 'transparent'}`, fontFamily: MONO }}
+      style={{
+        // Today's ring steps aside while names are selected — on a day with
+        // nothing shared it reads as a weak match, which is the wrong question.
+        border: `1px solid ${lit || (today && !dim) ? C.line : 'transparent'}`,
+        background: lit ? C.panelHi : 'transparent',
+        opacity: dim ? 0.4 : 1,
+        fontFamily: MONO,
+      }}
     >
       <div style={{ fontSize: 13, fontWeight: 600, color: fill ? C.line : C.dim }}>
         {cell.date.getDate()}
