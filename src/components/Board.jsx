@@ -3,7 +3,7 @@ import { RefreshCw, Settings2, Eraser, Check, Users, Link2, Pencil } from 'lucid
 import { C, MONO, SANS } from '../theme.js';
 import { DOW, MON, dparse, ck, fmtClock, fmtSpan, slotCountFor, minsAtFor } from '../lib/time.js';
 import { saveParticipant, deleteParticipant, saveCourtVotes } from '../lib/api.js';
-import { Wordmark, Panel, Label, IconBtn, TextField, Notice } from './ui.jsx';
+import { Wordmark, Panel, Label, IconBtn, TextField, Notice, Tiny } from './ui.jsx';
 import Calendar from './Calendar.jsx';
 import { CourtDirectory } from './Courts.jsx';
 
@@ -18,6 +18,7 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
   const [status, setStatus] = useState('saved'); // saved | saving | error
   const [refreshing, setRefreshing] = useState(false);
   const [focusCell, setFocusCell] = useState(null);
+  const [picked, setPicked] = useState(() => new Set()); // participant ids clicked in the roster, for outlining
   const [menuOpen, setMenuOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [copied, setCopied] = useState(false);
@@ -104,6 +105,31 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
     },
     [pollId, identity.id]
   );
+
+  // The day header parks directly under the roster panel, so it needs the panel's
+  // live height — chips wrap and the summary line comes and goes.
+  const [panelH, setPanelH] = useState(0);
+  const panelObs = useRef(null);
+  const panelRef = useCallback((el) => {
+    panelObs.current?.disconnect();
+    panelObs.current = null;
+    if (!el) return;
+    setPanelH(el.offsetHeight);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setPanelH(el.offsetHeight));
+    ro.observe(el);
+    panelObs.current = ro;
+  }, []);
+  useEffect(() => () => panelObs.current?.disconnect(), []);
+
+  const togglePicked = useCallback((id) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // Background sync. Cheap: one GET, four rows.
   useEffect(() => {
@@ -198,6 +224,31 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
 
   const headcount = Math.max(roster.length, 1);
 
+  // Whose windows to outline. One name outlines their own times; several outline
+  // only the cells all of them share, which is the whole point of picking more.
+  const highlight = useMemo(() => {
+    if (view !== 'all' || picked.size === 0) return null;
+    let out = null;
+    for (const p of roster) {
+      if (!picked.has(p.id)) continue;
+      const own = new Set(p.slots || []);
+      out = out === null ? own : new Set([...out].filter((k) => own.has(k)));
+    }
+    return out;
+  }, [roster, picked, view]);
+
+  const pickedNames = useMemo(
+    () => roster.filter((p) => picked.has(p.id)).map((p) => p.name),
+    [roster, picked]
+  );
+
+  const focusLabel = useMemo(() => {
+    if (view !== 'all' || !focusCell) return null;
+    const [d, m] = focusCell.split('#');
+    const dt = dparse(d);
+    return `${DOW[dt.getDay()].toUpperCase()} ${MON[dt.getMonth()].toUpperCase()} ${dt.getDate()} · ${fmtClock(Number(m))}`;
+  }, [view, focusCell]);
+
   // Best windows: contiguous runs on one day where the same number of people are
   // free. Ranked by headcount first, then by how long the run is.
   const best = useMemo(() => {
@@ -243,6 +294,7 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
               onClick={() => {
                 setTab(k);
                 setFocusCell(null);
+                setPicked(new Set());
                 setMenuOpen(false);
               }}
               aria-pressed={tab === k}
@@ -448,6 +500,7 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
               onClick={() => {
                 setView(k);
                 setFocusCell(null);
+                setPicked(new Set());
                 if (k === 'all') refresh();
               }}
               aria-pressed={view === k}
@@ -467,6 +520,92 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
         </div>
       )}
 
+      {/* The roster is the key to reading the calendar, so it sits above it rather
+          than underneath — and stays stuck to the top, because the cell you tapped
+          can be a long way down an open week. */}
+      <div
+        ref={panelRef}
+        className="rounded mb-3"
+        style={{
+          background: C.panel,
+          border: `1px solid ${C.hair}`,
+          position: 'sticky',
+          top: 8,
+          zIndex: 5,
+        }}
+      >
+        <div
+          className="px-4 pt-3 pb-2 flex items-center justify-between gap-3"
+          style={{ borderBottom: `1px solid ${C.hair}` }}
+        >
+          <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '0.22em', color: C.dim }}>
+            PLAYERS
+          </span>
+          <span
+            style={{
+              fontFamily: MONO,
+              fontSize: 10,
+              letterSpacing: '0.14em',
+              color: focusLabel ? C.coral : C.dim,
+            }}
+          >
+            {focusLabel ?? `${roster.length} IN`}
+          </span>
+        </div>
+
+        <div className="px-4 py-3 flex flex-wrap gap-2">
+          {roster.length === 0 && (
+            <span style={{ color: C.dim, fontSize: 13 }}>No one has marked times yet.</span>
+          )}
+          {roster.map((p) => {
+            const free = focusCell ? (p.slots || []).includes(focusCell) : null;
+            const on = picked.has(p.id);
+            const selectable = view === 'all';
+            return (
+              <button
+                key={p.id}
+                type="button"
+                disabled={!selectable}
+                aria-pressed={selectable ? on : undefined}
+                aria-label={selectable ? `Outline ${p.name}'s times` : undefined}
+                onClick={() => togglePicked(p.id)}
+                className="rounded px-3 py-1 flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                style={{
+                  border: `1px solid ${on ? C.line : C.hair}`,
+                  background: on ? C.panelHi : 'transparent',
+                  color: C.line,
+                  fontSize: 12.5,
+                  opacity: free === false ? 0.4 : 1,
+                  cursor: selectable ? 'pointer' : 'default',
+                }}
+              >
+                {free && <Check size={12} style={{ color: C.ball }} />}
+                {p.name}
+                <span style={{ fontFamily: MONO, color: C.dim, fontSize: 11 }}>
+                  {fmtSpan((p.slots || []).length)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {highlight && (
+          <div
+            className="px-4 py-2 flex items-baseline justify-between gap-3"
+            style={{ borderTop: `1px solid ${C.hair}` }}
+          >
+            <span style={{ color: C.dim, fontSize: 12.5 }}>
+              {picked.size === 1
+                ? `Outlined — every window ${pickedNames[0]} could play.`
+                : highlight.size
+                  ? `Outlined — ${fmtSpan(highlight.size)} that all ${picked.size} share.`
+                  : `Nothing overlaps for all ${picked.size} of them.`}
+            </span>
+            <Tiny onClick={() => setPicked(new Set())}>Clear</Tiny>
+          </div>
+        )}
+      </div>
+
       <Calendar
         poll={poll}
         mine={mine}
@@ -477,56 +616,14 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
         focusCell={focusCell}
         onFocusCell={setFocusCell}
         enabled={named}
+        highlight={highlight}
+        stickyTop={panelH + 8}
       />
-
-      {view === 'all' && focusCell && (
-        <div className="mt-3 rounded px-4 py-3" style={{ background: C.panelHi, border: `1px solid ${C.hair}` }}>
-          <div style={{ fontFamily: MONO, fontSize: 11, color: C.dim, letterSpacing: '0.14em' }}>
-            {(() => {
-              const [d, m] = focusCell.split('#');
-              const dt = dparse(d);
-              return `${DOW[dt.getDay()].toUpperCase()} ${MON[dt.getMonth()].toUpperCase()} ${dt.getDate()} · ${fmtClock(Number(m))}`;
-            })()}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {roster.map((p) => {
-              const free = (p.slots || []).includes(focusCell);
-              return (
-                <span
-                  key={p.id}
-                  className="rounded px-2 py-1 flex items-center gap-1"
-                  style={{
-                    background: free ? C.ball : 'transparent',
-                    color: free ? C.ink : C.dim,
-                    border: `1px solid ${free ? C.ball : C.hair}`,
-                    fontSize: 12.5,
-                  }}
-                >
-                  {free && <Check size={12} />}
-                  {p.name}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {roster.length === 0 && <span style={{ color: C.dim, fontSize: 13 }}>No one has marked times yet.</span>}
-        {roster.map((p) => (
-          <span key={p.id} className="rounded px-3 py-1" style={{ border: `1px solid ${C.hair}`, color: C.line, fontSize: 12.5 }}>
-            {p.name}
-            <span style={{ fontFamily: MONO, color: C.dim, marginLeft: 6, fontSize: 11 }}>
-              {fmtSpan((p.slots || []).length)}
-            </span>
-          </span>
-        ))}
-      </div>
 
       <Notice>
         {view === 'mine'
           ? 'Open a week, then drag across it to paint the blocks you could play. Everyone opening this link marks their own — and sees everyone else\u2019s.'
-          : 'Brighter days and blocks mean more players free. Tap a block to see who.'}
+          : 'Brighter days and blocks mean more players free. Tap a block to see who — or tap a name to outline when they can play.'}
       </Notice>
         </>
       )}
