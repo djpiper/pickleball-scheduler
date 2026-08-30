@@ -5,9 +5,10 @@ poll, shares the link, everyone paints the half-hour blocks they could play, and
 the app ranks the windows where the most people overlap.
 
 Creating a poll takes one click: every day for the next four weeks, 9am–9pm, is on
-the calendar by default. Availability is marked on a month view — weeks stack like
-a wall calendar, and clicking one opens it into the painting grid for those seven
-days.
+the calendar by default. Groups planning further ahead — a season, a tournament —
+can push the day picker out a month at a time, to twelve weeks. Availability is
+marked on a month view — weeks stack like a wall calendar, and clicking one opens
+it into the painting grid for those seven days.
 
 A poll has two tabs, because a group has two things to settle. **Times** is the
 calendar. **Courts** is approval voting over a shared, site-wide directory of places to
@@ -325,8 +326,18 @@ organiser doesn't know which days are worth asking about — that's the entire p
 of the poll — so making them guess up front is a decision asked at the one moment
 nobody can answer it. The day chips and hour selects still exist, folded behind
 "narrow it down" and unfolded by default when *editing*, for the case where whole
-days really are off the table for everyone. 28 days is also `LIMITS.dates`, so the
-default payload sits exactly on the cap.
+days really are off the table for everyone.
+
+**Four weeks is the default, not the ceiling.** "+ 4 more weeks" under the day
+chips pushes the picker out by `EXTEND_DAYS` at a time, up to `MAX_HORIZON_DAYS`
+(84) — which *is* `LIMITS.dates`, so the furthest a poll can reach is exactly what
+the API accepts. Extending only reveals chips; it never ticks them, because
+nobody wants a twelve-week poll by accident and the new weeks are one "All" away.
+Editing a poll opens the picker already wide enough to hold its own days
+(`horizonFor` in `Setup.jsx`), so changing the hours can't silently drop the back
+half of the calendar. The picker splits into month blocks under a fixed SUN..SAT
+header, each block starting in its own weekday column: four rows of bare day
+numbers are readable, twelve rows spanning four months are not.
 
 **A month of weeks, one open at a time.** The default poll is 672 cells; as one
 flat grid that's a horizontal scroll nobody finishes. `Calendar.jsx` stacks weeks
@@ -337,8 +348,9 @@ Collapsed rows still carry the answer: each day shows a ball-yellow bar for how
 much of it is claimed (your share of the day in "my times", the group's best
 overlap in "everyone"), so you can see where the group is converging without
 opening anything. The bar is deliberately not a tinted cell — ball yellow washed
-over the panel at half strength goes olive, and four weeks of olive squares reads
-as noise.
+over the panel at half strength goes olive, and weeks of olive squares read as
+noise. Stacking rows is also what lets a poll grow past a month for free: twelve
+collapsed weeks still scroll vertically, the one direction a phone has to spare.
 
 **One row per participant, upserted.** Two people painting the grid at the same
 moment write different rows, so there's no last-write-wins clobbering. Do not

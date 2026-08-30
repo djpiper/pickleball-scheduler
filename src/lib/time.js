@@ -26,11 +26,17 @@ export const minsAtFor = (poll) => (i) => poll.startHour * 60 + i * 30;
 
 // What a poll covers unless someone narrows it: every day for four weeks, 9am to
 // 9pm. Creating a poll is meant to be one button — nobody knows up front which
-// days are worth asking about, and that's exactly what the poll is for. 28 days
-// is also LIMITS.dates, so the default payload sits right on the cap.
+// days are worth asking about, and that's exactly what the poll is for.
+//
+// Four weeks is the *default*, not the ceiling. A group booking a season, a
+// tournament, or anything past the next month can push the picker further out a
+// month at a time, up to MAX_HORIZON_DAYS — which is LIMITS.dates, so the
+// furthest a poll can reach is exactly what the API will accept.
 export const DEFAULT_START_HOUR = 9;
 export const DEFAULT_END_HOUR = 21;
 export const HORIZON_DAYS = 28;
+export const MAX_HORIZON_DAYS = 84;
+export const EXTEND_DAYS = 28;
 
 export const startOfToday = () => {
   const d = new Date();

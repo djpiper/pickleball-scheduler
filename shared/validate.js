@@ -5,8 +5,8 @@
 export const LIMITS = {
   title: 60,
   name: 40,
-  dates: 28, // days a poll may span
-  slots: 2000, // 28 days x ~48 half-hours, with headroom
+  dates: 84, // days a poll may span — twelve weeks out, three times the default
+  slots: 4200, // 84 days x 48 half-hours, with headroom
   idLen: 32,
   courtName: 60,
   area: 80,

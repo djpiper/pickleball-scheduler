@@ -9,11 +9,14 @@ import Grid from './Grid.jsx';
  * accordion-style into the painting grid for those seven days.
  *
  * The default poll is four weeks of 9am–9pm, which is 672 cells — a single flat
- * grid of that would be a horizontal scroll nobody finishes. A week is the unit
- * people actually think in ("I'm free Thursday evening"), it fits a phone
- * without scrolling sideways, and the collapsed rows still carry the answer:
- * each day is tinted by how much of it is claimed, so you can see where the
- * group is converging before opening anything.
+ * grid of that would be a horizontal scroll nobody finishes, and a poll can reach
+ * three times further out than that. A week is the unit people actually think in
+ * ("I'm free Thursday evening"), it fits a phone without scrolling sideways, and
+ * the collapsed rows still carry the answer: each day is tinted by how much of it
+ * is claimed, so you can see where the group is converging before opening
+ * anything. Stacking rows is also what lets the calendar grow past a month
+ * without changing shape — twelve collapsed weeks still scroll vertically, the
+ * one direction a phone has to spare.
  *
  * `stickyTop` is passed straight through to whichever week is open — the pinned
  * day header is the grid's business. `highlight` goes through too, but the
@@ -215,7 +218,7 @@ function DayCell({ cell, stat, view, slots, headcount, today, picking }) {
   }
 
   // A bar rather than a tinted cell: ball yellow washed over the panel at half
-  // strength goes olive, and four weeks of olive squares tells you nothing. A
+  // strength goes olive, and weeks of olive squares tell you nothing. A
   // filled rail keeps the yellow at full strength and stays readable at 40px
   // wide. It measures the same thing the day opens into — how much of the day I
   // claimed, how much of the group is free at the day's best moment, or, once
