@@ -12,7 +12,7 @@ const POLL_INTERVAL_MS = 20000;
 
 export default function Board({ pollId, poll, participants, identity, onIdentity, onReload, onEditConfig }) {
   const [tab, setTab] = useState('times'); // times | courts
-  const [view, setView] = useState('mine');
+  const [viewPref, setViewPref] = useState('mine');
   const [mine, setMine] = useState(() => new Set());
   const [myCourts, setMyCourts] = useState(() => new Set());
   const [status, setStatus] = useState('saved'); // saved | saving | error
@@ -25,6 +25,12 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
   const [error, setError] = useState('');
 
   const named = !!identity.name.trim();
+
+  // Until you've said who you are there is no "mine" to draw — a name box over an
+  // empty grid reads like an empty poll. So an unnamed reader gets the group view:
+  // the link is worth opening before you're ready to commit to a time yourself.
+  const view = named ? viewPref : 'all';
+
   const slots = slotCountFor(poll);
   const minsAt = minsAtFor(poll);
 
@@ -149,6 +155,10 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
     const clean = name.trim();
     if (!clean) return;
     const next = onIdentity({ ...identity, name: clean });
+    // Naming yourself swaps the group view for your own grid, so the outline and
+    // the focused cell you were reading no longer have anything to point at.
+    setPicked(new Set());
+    setFocusCell(null);
     try {
       setStatus('saving');
       await saveParticipant(pollId, next.id, { name: clean, slots: [...mine] });
@@ -165,6 +175,8 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
   const claimExisting = (participant) => {
     onIdentity({ id: participant.id, name: participant.name });
     seededFor.current = null;
+    setPicked(new Set());
+    setFocusCell(null);
     setMenuOpen(false);
   };
 
@@ -313,22 +325,27 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
           ))}
         </div>
 
-        {named && (
-          <div className="flex items-center gap-1">
+        {/* Copying the link and pulling the latest are worth having before you've
+            named yourself — you're reading the board either way. The save state
+            and the options menu only mean something once you have a row. */}
+        <div className="flex items-center gap-1">
+          {named && (
             <span style={{ fontFamily: MONO, fontSize: 10, color: status === 'error' ? C.coral : C.dim, letterSpacing: '0.1em' }}>
               {status === 'saving' ? 'SAVING' : status === 'error' ? 'RETRY' : 'SAVED'}
             </span>
-            <IconBtn onClick={copyLink} label="Copy link">
-              <Link2 size={15} />
-            </IconBtn>
-            <IconBtn onClick={refresh} label="Refresh">
-              <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
-            </IconBtn>
+          )}
+          <IconBtn onClick={copyLink} label="Copy link">
+            <Link2 size={15} />
+          </IconBtn>
+          <IconBtn onClick={refresh} label="Refresh">
+            <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+          </IconBtn>
+          {named && (
             <IconBtn onClick={() => setMenuOpen((v) => !v)} label="Options">
               <Settings2 size={15} />
             </IconBtn>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {tab === 'times' && (
@@ -498,7 +515,7 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
               key={k}
               type="button"
               onClick={() => {
-                setView(k);
+                setViewPref(k);
                 setFocusCell(null);
                 setPicked(new Set());
                 if (k === 'all') refresh();
@@ -621,9 +638,11 @@ export default function Board({ pollId, poll, participants, identity, onIdentity
       />
 
       <Notice>
-        {view === 'mine'
-          ? 'Open a week, then drag across it to paint the blocks you could play. Everyone opening this link marks their own — and sees everyone else\u2019s.'
-          : 'Brighter days and blocks mean more players free. Tap a block to see who — or tap a name to outline when they can play.'}
+        {!named
+          ? 'Brighter days and blocks mean more players free. Tap a block to see who — or tap a name to outline when they can play. Add your name above to mark your own.'
+          : view === 'mine'
+            ? 'Open a week, then drag across it to paint the blocks you could play. Everyone opening this link marks their own — and sees everyone else\u2019s.'
+            : 'Brighter days and blocks mean more players free. Tap a block to see who — or tap a name to outline when they can play.'}
       </Notice>
         </>
       )}

@@ -352,6 +352,15 @@ over the panel at half strength goes olive, and weeks of olive squares read as
 noise. Stacking rows is also what lets a poll grow past a month for free: twelve
 collapsed weeks still scroll vertically, the one direction a phone has to spare.
 
+**Reading the board doesn't require a name.** Until you've claimed one, `Board.jsx`
+pins the effective view to "everyone" rather than an empty "mine" (`view = named ?
+viewPref : 'all'`), so an unnamed reader gets the heatmap, the best windows, the
+roster, and the tap-a-name outlining — everything except painting. Someone opening
+the link wants to know whether the group has already converged before deciding
+whether they're in; a name box over a blank grid answers the wrong question and
+reads like an empty poll. Naming yourself flips to "my times" and clears any
+outline, which no longer has anything to point at.
+
 **One row per participant, upserted.** Two people painting the grid at the same
 moment write different rows, so there's no last-write-wins clobbering. Do not
 "simplify" this into a single JSON blob per poll.
