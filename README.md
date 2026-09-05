@@ -232,7 +232,9 @@ src/
     identity.js           per-poll localStorage identity
   components/
     Setup.jsx             create/edit form; defaults to everything, with the day
-                          chips + hour selects folded behind "narrow it down"
+                          chips + hour selects folded behind "narrow it down".
+                          Editing also shows the poll's own past days, so they
+                          can be dropped
     Board.jsx             state owner: TIMES/COURTS tabs, save loops, roster,
                           best-window ranking, vote tallies
     Calendar.jsx          month view: week rows + per-day summaries, one week
@@ -336,8 +338,23 @@ nobody wants a twelve-week poll by accident and the new weeks are one "All" away
 Editing a poll opens the picker already wide enough to hold its own days
 (`horizonFor` in `Setup.jsx`), so changing the hours can't silently drop the back
 half of the calendar. The picker splits into month blocks under a fixed SUN..SAT
-header, each block starting in its own weekday column: four rows of bare day
+header, every chip placed in its own weekday column: four rows of bare day
 numbers are readable, twelve rows spanning four months are not.
+
+**The picker reaches backwards too, but only over days the poll already holds.**
+The horizon runs forward from today, so an in-progress poll accumulates days the
+picker had no chip for — they're on the calendar and in everyone's tallies, with
+nothing to switch them off. `pastDays` in `Setup.jsx` folds those days back into
+the chip grid, dashed and faded, so they can be dropped one at a time or all at
+once ("Drop past"). Only days the poll holds, never a blank run back to the
+earliest one: a chip to *add* a day that's already been and gone is an offer
+nobody wants. That's also why the bulk picks are asymmetric — "All", "Next 7" and
+"Weekends" reshape the future and leave whatever past days are ticked alone,
+because an organiser reaching for "All" mid-poll shouldn't silently delete days
+people have already marked, and no filter should resurrect one. "Clear" still
+means everything. (Chips are placed by weekday rather than flowing on from the
+last one for this reason: the days a poll holds can skip a Wednesday, and a
+flowed run would land the whole month a column out.)
 
 **A month of weeks, one open at a time.** The default poll is 672 cells; as one
 flat grid that's a horizontal scroll nobody finishes. `Calendar.jsx` stacks weeks
