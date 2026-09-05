@@ -23,8 +23,21 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
   // holds — otherwise editing the hours would silently hide half the calendar.
   const [horizon, setHorizon] = useState(() => horizonFor(initial?.dates));
   const days = useMemo(() => horizonDays(horizon), [horizon]);
-  const months = useMemo(() => monthsOf(days), [days]);
   const canExtend = horizon < MAX_HORIZON_DAYS;
+
+  // Days the poll already holds that today has walked past. The horizon only
+  // ever reaches forward, so without these an organiser editing a poll that
+  // started last Tuesday sees no chip for last Tuesday — the day is in the poll,
+  // on the calendar and in everyone's tallies, with nothing in the picker to
+  // switch it off. They're here to be dropped: nothing on this screen ever puts
+  // a day in the past back on.
+  const pastDays = useMemo(() => {
+    const today = startOfToday().getTime();
+    return [...new Set(initial?.dates ?? [])].sort().map(dparse).filter((d) => d.getTime() < today);
+  }, [initial?.dates]);
+
+  const pastKeys = useMemo(() => new Set(pastDays.map(dkey)), [pastDays]);
+  const months = useMemo(() => monthsOf([...pastDays, ...days]), [pastDays, days]);
 
   const [title, setTitle] = useState(initial?.title ?? 'Pickleball');
   const [sel, setSel] = useState(() => new Set(initial?.dates ?? defaultDates()));
@@ -45,7 +58,19 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
       return n;
     });
 
-  const quick = (fn) => setSel(new Set(days.filter(fn).map(dkey)));
+  // Bulk picks reshape the future and leave the past where it is. An organiser
+  // reaching for "All" mid-poll shouldn't silently delete days people have
+  // already marked, and no filter should resurrect a day that's been and gone —
+  // so dropping them is its own button, and "Clear" still means everything.
+  const quick = (fn) =>
+    setSel((prev) => {
+      const kept = [...pastKeys].filter((k) => prev.has(k));
+      return new Set([...kept, ...days.filter(fn).map(dkey)]);
+    });
+
+  const dropPast = () => setSel((prev) => new Set([...prev].filter((k) => !pastKeys.has(k))));
+
+  const stalePast = [...pastKeys].filter((k) => sel.has(k)).length;
 
   // Reaching further out shows more chips; it doesn't tick them. Nobody wants a
   // twelve-week poll by accident, and the new weeks are one "All" away.
@@ -105,7 +130,7 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
             <div className="flex items-baseline justify-between gap-3 mt-4">
               <Label>Days in play</Label>
               <div className="flex gap-3">
-                <Tiny onClick={() => setSel(new Set(days.map(dkey)))}>All</Tiny>
+                <Tiny onClick={() => quick(() => true)}>All</Tiny>
                 <Tiny onClick={() => quick((d) => d < new Date(days[0].getTime() + 7 * 864e5))}>Next 7</Tiny>
                 <Tiny onClick={() => quick((d) => d.getDay() === 0 || d.getDay() === 6)}>Weekends</Tiny>
                 <Tiny onClick={() => setSel(new Set())}>Clear</Tiny>
@@ -114,10 +139,9 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
 
             {/* Chips sit in month blocks under a fixed SUN..SAT header rather than
                 one continuous run. Four rows of bare numbers you can read; twelve
-                rows of them, spanning three or four months, you cannot. The first
-                chip of each block starts in its own weekday column, so the whole
-                picker reads as a wall calendar — the same shape the poll itself
-                opens into. */}
+                rows of them, spanning three or four months, you cannot. Every
+                chip sits in its own weekday column, so the picker reads as a
+                wall calendar — the same shape the poll itself opens into. */}
             <div className="grid grid-cols-7 gap-1 mt-3 pb-1">
               {DOW.map((d) => (
                 <div
@@ -139,9 +163,10 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
                   {m.label.toUpperCase()}
                 </div>
                 <div className="grid grid-cols-7 gap-1">
-                  {m.days.map((d, i) => {
+                  {m.days.map((d) => {
                     const k = dkey(d);
                     const on = sel.has(k);
+                    const gone = pastKeys.has(k);
                     const weekend = d.getDay() === 0 || d.getDay() === 6;
                     return (
                       <button
@@ -149,13 +174,21 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
                         type="button"
                         onClick={() => toggle(k)}
                         aria-pressed={on}
-                        aria-label={`${DOW[d.getDay()]} ${m.label} ${d.getDate()}`}
+                        aria-label={`${DOW[d.getDay()]} ${m.label} ${d.getDate()}${gone ? ', already past' : ''}`}
                         className="rounded py-2 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                         style={{
-                          gridColumnStart: i === 0 ? d.getDay() + 1 : undefined,
+                          // Every chip is placed in its own weekday column, not
+                          // just the first of the block: the days already past
+                          // are whatever the poll happens to hold, so they can
+                          // skip a Wednesday, and a run that flowed on from the
+                          // last chip would land the whole month a column out.
+                          gridColumnStart: d.getDay() + 1,
                           background: on ? C.ball : C.deep,
                           color: on ? C.ink : weekend ? C.line : C.dim,
-                          border: `1px solid ${on ? C.ball : C.hair}`,
+                          // Dashed and faded: still a real chip you can switch
+                          // off, visibly not a day anyone can play any more.
+                          border: `1px ${gone ? 'dashed' : 'solid'} ${on ? C.ball : C.hair}`,
+                          opacity: gone ? 0.55 : 1,
                           fontFamily: MONO,
                         }}
                       >
@@ -169,6 +202,19 @@ export default function Setup({ initial, onSubmit, onCancel, busy, error, onOpen
                 </div>
               </div>
             ))}
+
+            {stalePast > 0 && (
+              <div className="flex items-baseline justify-between gap-3 mt-3">
+                <span style={{ color: C.dim, fontSize: 12.5, lineHeight: 1.5 }}>
+                  {stalePast} day{stalePast === 1 ? '' : 's'} already gone {stalePast === 1 ? 'is' : 'are'} still
+                  on the calendar, dashed above. Tap {stalePast === 1 ? 'it' : 'them'} to drop{' '}
+                  {stalePast === 1 ? 'it' : 'them'}.
+                </span>
+                <span className="shrink-0">
+                  <Tiny onClick={dropPast}>Drop past</Tiny>
+                </span>
+              </div>
+            )}
 
             {canExtend ? (
               <button
